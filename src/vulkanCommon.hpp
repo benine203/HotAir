@@ -5,13 +5,15 @@ static_assert(__cplusplus >= 202002L, "C++20 required");
 #include "platformGfx.hpp"
 #include <functional>
 #include <iostream>
-#include <numeric>
-#include <ranges>
 #include <vulkan/vulkan.hpp>
 
-template <typename PlatformGfx> struct VulkanGfxBase {
+/**
+ *   Needs a platform-specific implementation to abstract-over details like
+ *   windowing/system-specific details (geometry, surface, etc.)
+ */
+struct VulkanGfxBase {
 protected:
-  PlatformGfx *platformGfxImpl;
+  PlatformGfx *platformVkImpl;
 
   /* createInstance */
   vk::Instance instance;
@@ -27,6 +29,10 @@ protected:
   vk::Queue presentQueue;
   vk::Queue computeQueue;
 
+  /**
+   * filled (and consumed) by createDevice
+   * consumed by createSwapchain and createCommandPools
+   */
   struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
@@ -37,7 +43,8 @@ protected:
       return graphicsFamily.has_value() && presentFamily.has_value() &&
              transferFamily.has_value() && computeFamily.has_value();
     }
-  } queueFamilyIndices; // also consumed by createSwapchain
+  } queueFamilyIndices; // also consumed by create fn for Swapchain and
+                        // commandPools
 
   /* user-supplied callback */
   vk::SurfaceKHR *surface; // this is a pointer because it's created by the
@@ -88,19 +95,226 @@ protected:
 public:
   // VulkanGfxBase() = default;
   VulkanGfxBase(PlatformGfx *platformGfxImpl)
-      : platformGfxImpl(platformGfxImpl) {}
+      : platformVkImpl(platformGfxImpl) {}
 
-  virtual ~VulkanGfxBase() = default;
+  virtual ~VulkanGfxBase() {
+    auto const verbose = Args::verbose();
+
+    destroy();
+
+    if (device) {
+      device.destroy();
+      device = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: Vulkan device destroyed\n", __FILE__,
+                                 __LINE__);
+      }
+    }
+
+    if (instance) {
+      instance.destroy();
+      instance = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: Vulkan instance destroyed\n", __FILE__,
+                                 __LINE__);
+      }
+    }
+  }
+
+  void destroy() {
+    auto const verbose = Args::verbose();
+
+    if (device) {
+      device.waitIdle();
+    }
+
+    if (inFlightFence) {
+      device.destroyFence(inFlightFence);
+      inFlightFence = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: inFlightFence destroyed\n", __FILE__,
+                                 __LINE__);
+      }
+    }
+
+    if (renderFinishedSemaphore) {
+      device.destroySemaphore(renderFinishedSemaphore);
+      renderFinishedSemaphore = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: renderFinishedSemaphore destroyed\n",
+                                 __FILE__, __LINE__);
+      }
+    }
+
+    if (imageAvailableSemaphore) {
+      device.destroySemaphore(imageAvailableSemaphore);
+      imageAvailableSemaphore = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: imageAvailableSemaphore destroyed\n",
+                                 __FILE__, __LINE__);
+      }
+    }
+
+    if (!commandBuffers.graphics.empty()) {
+      device.freeCommandBuffers(commandPools.graphics,
+                                commandBuffers.graphics.size(),
+                                commandBuffers.graphics.data());
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: {} graphics command buffer(s) freed\n",
+                                 __FILE__, __LINE__,
+                                 commandBuffers.graphics.size());
+      }
+      commandBuffers.graphics.clear();
+    }
+
+    if (!commandBuffers.transfer.empty()) {
+      device.freeCommandBuffers(commandPools.transfer,
+                                commandBuffers.transfer.size(),
+                                commandBuffers.transfer.data());
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: {} transfer command buffer(s) freed\n",
+                                 __FILE__, __LINE__,
+                                 commandBuffers.transfer.size());
+      }
+      commandBuffers.transfer.clear();
+    }
+
+    if (!commandBuffers.present.empty()) {
+      device.freeCommandBuffers(commandPools.present,
+                                commandBuffers.present.size(),
+                                commandBuffers.present.data());
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: {} present command buffer(s) freed\n",
+                                 __FILE__, __LINE__,
+                                 commandBuffers.present.size());
+      }
+      commandBuffers.present.clear();
+    }
+
+    if (!commandBuffers.compute.empty()) {
+      device.freeCommandBuffers(commandPools.compute,
+                                commandBuffers.compute.size(),
+                                commandBuffers.compute.data());
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: {} compute command buffer(s) freed\n",
+                                 __FILE__, __LINE__,
+                                 commandBuffers.compute.size());
+      }
+      commandBuffers.compute.clear();
+    }
+
+    if (commandPools.compute) {
+      device.destroyCommandPool(commandPools.compute);
+      commandPools.compute = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: compute command pool destroyed\n",
+                                 __FILE__, __LINE__);
+      }
+    }
+
+    if (commandPools.present) {
+      device.destroyCommandPool(commandPools.present);
+      commandPools.present = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: present command pool destroyed\n",
+                                 __FILE__, __LINE__);
+      }
+    }
+
+    if (commandPools.transfer) {
+      device.destroyCommandPool(commandPools.transfer);
+      commandPools.transfer = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: transfer command pool destroyed\n",
+                                 __FILE__, __LINE__);
+      }
+    }
+
+    if (commandPools.graphics) {
+      device.destroyCommandPool(commandPools.graphics);
+      commandPools.graphics = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: graphics command pool destroyed\n",
+                                 __FILE__, __LINE__);
+      }
+    }
+
+    if (pipeline) {
+      device.destroyPipeline(pipeline);
+      pipeline = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: pipeline destroyed\n", __FILE__,
+                                 __LINE__);
+      }
+    }
+
+    if (pipelineLayout) {
+      device.destroyPipelineLayout(pipelineLayout);
+      pipelineLayout = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: pipeline layout destroyed\n", __FILE__,
+                                 __LINE__);
+      }
+    }
+
+    if (!framebuffers.empty()) {
+      for (auto &framebuffer : framebuffers) {
+        device.destroyFramebuffer(framebuffer);
+      }
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: {} framebuffers destroyed\n", __FILE__,
+                                 __LINE__, framebuffers.size());
+      }
+      framebuffers.clear();
+    }
+
+    if (renderPass) {
+      device.destroyRenderPass(renderPass);
+      renderPass = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: render pass destroyed\n", __FILE__,
+                                 __LINE__);
+      }
+    }
+
+    if (!imageViews.empty()) {
+      for (auto &imageView : imageViews) {
+        device.destroyImageView(imageView);
+      }
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: {} image views destroyed\n", __FILE__,
+                                 __LINE__, imageViews.size());
+      }
+      imageViews.clear();
+    }
+
+    if (swapchain) {
+      device.destroySwapchainKHR(swapchain);
+      swapchain = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: swapchain destroyed\n", __FILE__,
+                                 __LINE__);
+      }
+    }
+  }
 
   void init(const std::function<vk::SurfaceKHR *()> create_surface_fn) {
     createInstance();
 
-    if (!create_surface_fn)
-      throw std::runtime_error{std::format(
-          "{}:{}: create_surface fn must be a valid cb", __FILE__, __LINE__)};
-    surface = create_surface_fn();
-
     pickPhysicalDevice();
+
+    if (!surface) {
+      if (!create_surface_fn)
+        throw std::runtime_error{std::format(
+            "{}:{}: create_surface fn must be a valid cb", __FILE__, __LINE__)};
+      surface = create_surface_fn();
+    } else {
+      if (Args::verbose() > 0) {
+        std::cerr << std::format(
+            "{}:{}: skipping platform vk Surface (re-)creation\n", __FILE__,
+            __LINE__);
+      }
+    }
 
     if (Args::verbose() > 1) {
       auto const capabilities =
@@ -147,7 +361,19 @@ public:
   }
 
 private:
+  /**
+   *  Create a Vulkan instance
+   *  Instance is the connection between the application and the Vulkan library
+   */
   void createInstance() {
+    if (instance) {
+      if (Args::verbose() > 0) {
+        std::cerr << std::format("{}:{}:{}: skipping vk instance creation\n",
+                                 __FILE__, __LINE__, __PRETTY_FUNCTION__);
+      }
+      return;
+    }
+
     vk::ApplicationInfo appInfo("HotAir", VK_MAKE_VERSION(1, 0, 0), "Baloon",
                                 VK_MAKE_VERSION(1, 0, 0));
 
@@ -178,7 +404,24 @@ private:
     std::cerr << "Base Vulkan instance created\n";
   }
 
+  /**
+   * Select a physical device to use
+   * Preconditions: vk instance created
+   * @TODO: Add a way to select a device based on user preferences, now just
+   *        find a GPU with geometry shader support
+   */
   void pickPhysicalDevice() {
+    assert(instance);
+
+    if (physicalDevice) {
+      if (Args::verbose() > 0) {
+        std::cerr << std::format(
+            "{}:{}:{}: skipping physical device selection\n", __FILE__,
+            __LINE__, __PRETTY_FUNCTION__);
+      }
+      return;
+    }
+
     devices = instance.enumeratePhysicalDevices();
     if (devices.empty()) {
       throw std::runtime_error("failed to find GPUs with Vulkan support");
@@ -467,7 +710,7 @@ private:
   }
 
   void createCommandPools() {
-    auto const queueFamilyIndices = this->queueFamilyIndices;
+    // auto const &queueFamilyIndices = this->queueFamilyIndices;
 
     auto graphicsPoolInfo = vk::CommandPoolCreateInfo();
     graphicsPoolInfo.queueFamilyIndex = *queueFamilyIndices.graphicsFamily;
@@ -479,7 +722,7 @@ private:
     }
 
     auto transferPoolInfo = vk::CommandPoolCreateInfo();
-    transferPoolInfo.queueFamilyIndex = *queueFamilyIndices.graphicsFamily;
+    transferPoolInfo.queueFamilyIndex = *queueFamilyIndices.transferFamily;
     transferPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 
     commandPools.transfer = device.createCommandPool(transferPoolInfo);
@@ -587,9 +830,46 @@ private:
                              __LINE__);
   }
 
+  /**
+   * Create the Vk swapchain (the chain of images that are presented to screen.
+   * Supports separate graphics and present queues.
+   * Preconditions:
+   *  - physical device selected
+   *  - surface acquired from platform (to query capabilities, formats and
+   *    present modes)
+   *  - queue family indices are complete, device created, queues initialized
+   */
   void createSwapchain() {
+
     auto const capabilities =
         physicalDevice.getSurfaceCapabilitiesKHR(*surface);
+
+    // this is the extent of the swapchain images
+    auto const extent = [&capabilities,
+                         platformVkImpl = this->platformVkImpl]() {
+      if (capabilities.currentExtent.width !=
+          std::numeric_limits<uint32_t>::max()) {
+        return capabilities.currentExtent;
+      }
+
+      auto const [geo_width, geo_height] = platformVkImpl->get_geometry();
+
+      auto const width =
+          std::clamp(geo_width, capabilities.minImageExtent.width,
+                     capabilities.maxImageExtent.width);
+      auto const height =
+          std::clamp(geo_height, capabilities.minImageExtent.height,
+                     capabilities.maxImageExtent.height);
+
+      return vk::Extent2D(width, height);
+    }();
+
+    this->extent = extent;
+    if (Args::verbose() > 0) {
+      std::cerr << std::format("Swapchain extent: {}x{}\n", extent.width,
+                               extent.height);
+    }
+
     auto const formats = physicalDevice.getSurfaceFormatsKHR(*surface);
     auto const presentModes =
         physicalDevice.getSurfacePresentModesKHR(*surface);
@@ -619,31 +899,6 @@ private:
 
     if (presentMode == presentModes.end()) {
       throw std::runtime_error("failed to find suitable present mode");
-    }
-
-    // this is the extent of the swapchain images
-    auto const extent = [&]() {
-      if (capabilities.currentExtent.width !=
-          std::numeric_limits<uint32_t>::max()) {
-        return capabilities.currentExtent;
-      }
-
-      auto const [geo_width, geo_height] = platformGfxImpl->getGeometry();
-
-      auto const width =
-          std::clamp(geo_width, capabilities.minImageExtent.width,
-                     capabilities.maxImageExtent.width);
-      auto const height =
-          std::clamp(geo_height, capabilities.minImageExtent.height,
-                     capabilities.maxImageExtent.height);
-
-      return vk::Extent2D(width, height);
-    }();
-
-    this->extent = extent;
-    if (Args::verbose() > 0) {
-      std::cerr << std::format("Swapchain extent: {}x{}\n", extent.width,
-                               extent.height);
     }
 
     // we need at least one more image than the minimum
@@ -696,7 +951,23 @@ private:
                              images.size());
   }
 
+  /**
+   *  Create the Vk logical device
+   *   - Also save queue Family indices for later use in creating the swapchain
+   *   - Initializes the graphics/transfer/present/compute queues
+   *  Preconditions: physical device selected, surface acquired from platform
+   */
   void createDevice() {
+
+    if (device) {
+      if (Args::verbose() > 0) {
+        std::cerr << std::format(
+            "{}:{}:{}: skipping logical device re-creation\n", __FILE__,
+            __LINE__, __PRETTY_FUNCTION__);
+      }
+      return;
+    }
+
     auto const queueFamilyProperties =
         physicalDevice.getQueueFamilyProperties();
 

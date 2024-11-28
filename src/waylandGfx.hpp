@@ -11,33 +11,45 @@ static_assert(__cplusplus >= 202002L, "C++20 required");
 #include <iostream>
 #include <memory>
 #include <stdexcept>
-#include <string>
 #include <string_view>
-#include <utility>
 
 #include "../args.hpp"
 #include "platformGfx.hpp"
 #include "vulkanCommon.hpp"
+#include "xdg-decoration-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
+#include <libdecor.h>
 
-struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
-  WaylandGfx() : VulkanGfxBase<WaylandGfx>(this) {}
+/**
+ *  Wayland-based concrete implementation on top of VulkanGfxBase
+ */
+struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
+  WaylandGfx() : VulkanGfxBase{this} {}
+  virtual ~WaylandGfx() { VulkanGfxBase::~VulkanGfxBase(); }
 
   struct Window;
 
   struct Display {
-    wl_display *display;
+
+    // dispatch of events will be done in the event loop from one of these
+    // wl_display will be used if zxdg_decoration_manager_v1 is available
+    wl_display *display = nullptr;
+    libdecor *ld_context = nullptr;
+
     Geometry geometry;
 
-    wl_registry *registry;
+    wl_registry *registry = nullptr;
     wl_registry_listener registry_listener;
-    wl_compositor *compositor;
+    wl_compositor *compositor = nullptr;
 
-    wl_output *output;
+    wl_output *output = nullptr;
     Geometry output_geometry;
 
     // wl_shell *shell;
-    xdg_wm_base *xdg_wm_base;
+    xdg_wm_base *xdg_wm_base = nullptr;
+
+    // decoration
+    zxdg_decoration_manager_v1 *decoration_manager = nullptr;
 
     Display() {
       display = wl_display_connect(nullptr);
@@ -80,6 +92,11 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
           display->output = static_cast<wl_output *>(
               wl_registry_bind(registry, name, &wl_output_interface,
                                wl_output_interface.version));
+        } else if (siface == "zxdg_decoration_manager_v1") {
+          display->decoration_manager =
+              static_cast<zxdg_decoration_manager_v1 *>(wl_registry_bind(
+                  registry, name, &zxdg_decoration_manager_v1_interface,
+                  zxdg_decoration_manager_v1_interface.version));
         } else {
           if (Args::verbose() > 1)
             std::cerr << std::format("{}:{} ignoring global {} ({})\n",
@@ -203,6 +220,12 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
       this->display = display;
       return *this;
     }
+
+    int dispatch_events() {
+      if (ld_context)
+        return libdecor_dispatch(ld_context, -1);
+      return wl_display_dispatch(display);
+    }
   };
 
   struct Window {
@@ -210,10 +233,14 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
     wl_surface *surface = nullptr;
     xdg_surface *xdg_surface = nullptr;
     xdg_toplevel *xdg_toplevel = nullptr;
+    libdecor_frame *ld_frame = nullptr;
     Geometry geometry;
 
-    bool configured = false;
-    bool closed = false;
+    std::atomic<bool> configured = false;
+    std::atomic<bool> closed = false;
+
+    std::function<void()> redraw_fn;
+    std::function<void(Geometry)> on_resize;
 
     ~Window() {
       if (Args::verbose() > 0)
@@ -227,64 +254,183 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
         wl_surface_destroy(surface);
     }
 
-    Window(std::shared_ptr<Display> display) : display(display) {
+    Window(std::shared_ptr<Display> display, std::function<void()> &&redraw,
+           std::function<void(Geometry)> &&resize)
+        : display(display), redraw_fn(std::move(redraw)),
+          on_resize(std::move(resize)) {
       geometry = display->geometry;
-      geometry.width /= 2;
-      geometry.height /= 2;
+      geometry.width /= 3;
+      geometry.height /= 3;
 
       surface = wl_compositor_create_surface(display->compositor);
-      xdg_surface = xdg_wm_base_get_xdg_surface(display->xdg_wm_base, surface);
-      xdg_toplevel = xdg_surface_get_toplevel(xdg_surface);
 
-      static auto surface_listener = xdg_surface_listener{
-          .configure = [](void *data, struct xdg_surface *xdg_surface,
-                          uint32_t serial) {
-            auto *window = static_cast<Window *>(data);
-            xdg_surface_ack_configure(xdg_surface, serial);
-            window->configured = true;
-          }};
+      if (display->decoration_manager) {
+        xdg_surface =
+            xdg_wm_base_get_xdg_surface(display->xdg_wm_base, surface);
 
-      xdg_surface_add_listener(xdg_surface, &surface_listener, this);
+        static auto surface_listener = xdg_surface_listener{
+            .configure = [](void *data, struct xdg_surface *xdg_surface,
+                            uint32_t serial) {
+              auto *window = static_cast<Window *>(data);
+              xdg_surface_ack_configure(xdg_surface, serial);
 
-      static auto toplevel_listener = xdg_toplevel_listener{
-          .configure =
-              [](void *data, struct xdg_toplevel *xdg_toplevel, int32_t width,
-                 int32_t height, struct wl_array *states) {
-                auto window = static_cast<Window *>(data);
-                // window->geometry = {static_cast<uint32_t>(width),
-                //                     static_cast<uint32_t>(height)};
-                if (Args::verbose() > 0)
-                  std::cerr << std::format(
-                      "{}:{}: toplevel configure: width={}, height={}\n",
-                      __FILE__, __LINE__, width, height);
-              },
-          .close =
-              [](void *data, struct xdg_toplevel *xdg_toplevel) {
-                auto window = static_cast<Window *>(data);
-                window->closed = true;
-                if (Args::verbose() > 0)
-                  std::cerr << std::format("{}:{}: toplevel close\n", __FILE__,
-                                           __LINE__);
-              },
-          .configure_bounds =
-              [](void *data, struct xdg_toplevel *xdg_toplevel, int32_t width,
-                 int32_t height) {
-                if (Args::verbose() > 0)
-                  std::cerr << std::format("{}:{}: toplevel configure_bounds: "
-                                           "width={}, height={}\n",
-                                           __FILE__, __LINE__, width, height);
-              },
-          .wm_capabilities =
-              [](void *data, struct xdg_toplevel *xdg_toplevel,
-                 wl_array *capabilities) {
-                if (Args::verbose() > 0)
-                  std::cerr << std::format("{}:{}: toplevel wm_capabilities\n",
-                                           __FILE__, __LINE__);
-              }};
+              if (window->display->decoration_manager) {
+                window->xdg_toplevel =
+                    xdg_surface_get_toplevel(window->xdg_surface);
+                struct zxdg_toplevel_decoration_v1 *decoration =
+                    zxdg_decoration_manager_v1_get_toplevel_decoration(
+                        window->display->decoration_manager,
+                        window->xdg_toplevel);
 
-      xdg_toplevel_add_listener(xdg_toplevel, &toplevel_listener, this);
+                // Request server-side decorations
+                zxdg_toplevel_decoration_v1_set_mode(
+                    decoration, ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+              } else if (Args::verbose() > 0) {
+              }
 
-      xdg_toplevel_set_title(xdg_toplevel, "Wayland Window");
+              window->configured.store(true);
+              window->configured.notify_all();
+            }};
+
+        xdg_surface_add_listener(xdg_surface, &surface_listener, this);
+
+        static auto toplevel_listener = xdg_toplevel_listener{
+            .configure =
+                [](void *data, struct xdg_toplevel *xdg_toplevel, int32_t width,
+                   int32_t height, struct wl_array *states) {
+                  auto window = static_cast<Window *>(data);
+                  // window->geometry = {static_cast<uint32_t>(width),
+                  //                     static_cast<uint32_t>(height)};
+                  if (Args::verbose() > 0)
+                    std::cerr << std::format(
+                        "{}:{}: toplevel configure: width={}, height={}\n",
+                        __FILE__, __LINE__, width, height);
+                },
+            .close =
+                [](void *data, struct xdg_toplevel *xdg_toplevel) {
+                  auto window = static_cast<Window *>(data);
+                  window->closed.store(true);
+                  if (Args::verbose() > 0)
+                    std::cerr << std::format("{}:{}: toplevel close\n",
+                                             __FILE__, __LINE__);
+                },
+            .configure_bounds =
+                [](void *data, struct xdg_toplevel *xdg_toplevel, int32_t width,
+                   int32_t height) {
+                  if (Args::verbose() > 0)
+                    std::cerr
+                        << std::format("{}:{}: toplevel configure_bounds: "
+                                       "width={}, height={}\n",
+                                       __FILE__, __LINE__, width, height);
+                },
+            .wm_capabilities =
+                [](void *data, struct xdg_toplevel *xdg_toplevel,
+                   wl_array *capabilities) {
+                  if (Args::verbose() > 0)
+                    std::cerr
+                        << std::format("{}:{}: toplevel wm_capabilities\n",
+                                       __FILE__, __LINE__);
+                }};
+
+        // xdg_toplevel_add_listener(xdg_toplevel, &toplevel_listener, this);
+
+        // xdg_toplevel_set_title(xdg_toplevel, "Wayland Window");
+      } else {
+        // throw std::runtime_error(std::format("{}:{}:{}: no XDG decoration "
+        //                                      "manager; cannot create
+        //                                      window\n",
+        //                                      __FILE__, __LINE__,
+        //                                      __PRETTY_FUNCTION__));
+
+        std::cerr << std::format("{}:{}: no XDG decoration manager; "
+                                 "attempt CSD with libdecor\n",
+                                 __FILE__, __LINE__);
+
+        // libdecor
+        static struct libdecor_interface ld_iface = {
+            .error =
+                [](libdecor *ctx, libdecor_error error, const char *message) {
+                  std::cerr << std::format("{}:{}: libdecor error: {}\n",
+                                           __FILE__, __LINE__, message);
+                },
+        };
+
+        display->ld_context = libdecor_new(display->display, &ld_iface);
+
+        if (!display->ld_context) {
+          throw std::runtime_error{
+              std::format("{}:{}: libdecor_new failed\n", __FILE__, __LINE__)};
+        }
+
+        static libdecor_frame_interface ld_frame_iface = {
+            .configure =
+                [](libdecor_frame *frame, libdecor_configuration *configuration,
+                   void *data) {
+                  auto *window = static_cast<Window *>(data);
+
+                  // libdecor_window_state window_state;
+
+                  /* Update window state first for the correct
+                   * calculations */
+                  // if (!libdecor_configuration_get_window_state(configuration,
+                  //                                              &window_state))
+                  //   window_state = LIBDECOR_WINDOW_STATE_NONE;
+
+                  int width = 0, height = 0;
+                  const bool is_initial_frame =
+                      libdecor_configuration_get_content_size(
+                          configuration, frame, &width, &height) == false;
+
+                  width = (width == 0) ? window->geometry.width : width;
+                  height = (height == 0) ? window->geometry.height : height;
+
+                  if (Args::verbose() > 1)
+                    std::cerr << std::format(
+                        "{}:{}: libdecor configure: width={}, height={}\n",
+                        __FILE__, __LINE__, width, height);
+
+                  libdecor_state *state = libdecor_state_new(width, height);
+                  libdecor_frame_commit(frame, state, configuration);
+                  libdecor_state_free(state);
+
+                  window->configured.store(true);
+                  window->configured.notify_all();
+
+                  if (!is_initial_frame) {
+                    auto const new_geometry =
+                        Geometry{static_cast<uint32_t>(width),
+                                 static_cast<uint32_t>(height)};
+
+                    window->on_resize(new_geometry);
+
+                    window->redraw_fn();
+                  }
+
+                  wl_surface_commit(window->surface);
+                },
+            .close =
+                [](libdecor_frame *frame, void *data) {
+                  auto *window = static_cast<Window *>(data);
+                  window->closed.store(true);
+                  window->closed.notify_all();
+                },
+
+            .commit =
+                [](libdecor_frame *frame, void *data) {
+                  auto *window = static_cast<Window *>(data);
+                  wl_surface_commit(window->surface);
+                },
+
+            .dismiss_popup = [](libdecor_frame *frame, const char *seat_name,
+                                void *data) {},
+        };
+
+        ld_frame = libdecor_decorate(display->ld_context, surface,
+                                     &ld_frame_iface, this);
+        libdecor_frame_set_app_id(ld_frame, "HotAir");
+        libdecor_frame_set_title(ld_frame, "HotAir");
+        libdecor_frame_map(ld_frame);
+      }
 
       wl_surface_commit(surface);
 
@@ -300,10 +446,24 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
 
   std::shared_ptr<Display> display;
   std::shared_ptr<Window> window;
-
   vk::SurfaceKHR surface;
+  std::atomic<bool> initialized = false;
 
-  auto getGeometry() -> Geometry override { return window->geometry; }
+  auto get_geometry() -> Geometry override { return window->geometry; }
+
+  void platform_event_loop(std::function<bool()> &&on_tick) override {
+
+    // auto *cb = wl_surface_frame(window->surface);
+    //  static const auto frame_listener = wl_callback_listener{
+    //      .done = [](void *data, wl_callback *cb, uint32_t time) {
+    //        wl_callback_destroy(cb);
+    //      }};
+
+    while (display->dispatch_events() != -1 && !window->closed) {
+      if (!on_tick())
+        break;
+    }
+  }
 
   void init() override {
     display = std::make_shared<Display>();
@@ -315,9 +475,28 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
                                            __PRETTY_FUNCTION__));
     }
 
-    window = std::make_shared<Window>(display);
+    window = std::make_shared<Window>(
+        display, [this]() { this->redraw(); },
+        [this](Geometry new_geometry) {
+          if (new_geometry == window->geometry) {
+            if (Args::verbose() > 1)
+              std::cerr << std::format("{}:{}: geometry unchanged\n", __FILE__,
+                                       __LINE__);
+            return;
+          }
 
-    VulkanGfxBase::init([&]() {
+          window->geometry = new_geometry;
+
+          if (Args::verbose() > 0)
+            std::cerr << std::format(
+                "{}:{}: re-initializing Vulkan on resize\n", __FILE__,
+                __LINE__);
+
+          VulkanGfxBase::destroy();
+          VulkanGfxBase::init(nullptr);
+        });
+
+    /* VulkanGfxBase::*/ VulkanGfxBase::init([&]() {
       auto const create_info = VkWaylandSurfaceCreateInfoKHR{
           .sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
           .pNext = nullptr,
@@ -329,7 +508,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
       VkSurfaceKHR vksurface;
 
       if (auto result = vkCreateWaylandSurfaceKHR(
-              VulkanGfxBase::instance, &create_info, nullptr, &vksurface);
+              /* VulkanGfxBase:: */ instance, &create_info, nullptr,
+              &vksurface);
           result != VK_SUCCESS) {
         throw std::runtime_error(
             std::format("{}:{}:{}: Failed to create Wayland "
@@ -343,75 +523,94 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase<WaylandGfx> {
       return &surface;
     });
 
-    device.waitForFences(1, &inFlightFence, true, UINT64_MAX);
-    device.resetFences(1, &inFlightFence);
+    initialized.store(true);
+    initialized.notify_all();
 
-    uint32_t currentImageIndex;
-    device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAvailableSemaphore,
-                               nullptr, &currentImageIndex);
-
-    commandBuffers.graphics[currentImageIndex].reset();
-    commandBuffers.present[currentImageIndex].reset();
-    // commandBuffers.transfer[currentImageIndex].reset();
-    // commandBuffers.compute[currentImageIndex].reset();
-
-    vk::CommandBufferBeginInfo beginInfo;
-    commandBuffers.graphics[currentImageIndex].begin(beginInfo);
-
-    vk::RenderPassBeginInfo renderPassInfo;
-    renderPassInfo.renderPass = renderPass;
-    renderPassInfo.framebuffer = framebuffers[currentImageIndex];
-    renderPassInfo.renderArea.offset = {{0, 0}};
-    renderPassInfo.renderArea.extent = extent;
-
-    vk::ClearValue clearColor =
-        vk::ClearColorValue(std::array{1.0f, 0.3f, 0.0f, 1.0f});
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-
-    commandBuffers.graphics[currentImageIndex].beginRenderPass(
-        renderPassInfo, vk::SubpassContents::eInline);
-
-    // commandBuffers.graphics[currentImageIndex].draw(0, 0, 0, 0);
-
-    commandBuffers.graphics[currentImageIndex].endRenderPass();
-
-    commandBuffers.graphics[currentImageIndex].end();
-
-    auto submitInfo = vk::SubmitInfo();
-    vk::PipelineStageFlags waitStages[] = {
-        vk::PipelineStageFlagBits::eColorAttachmentOutput};
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
-
-    submitInfo.pWaitDstStageMask = waitStages;
-    submitInfo.commandBufferCount = 1;
-
-    submitInfo.pCommandBuffers = &commandBuffers.graphics[currentImageIndex];
-    submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
-    submitInfo.signalSemaphoreCount = 1;
-
-    // queue.submit(uint32_t submitCount, const vk::SubmitInfo *pSubmits,
-    // vk::Fence fence); queue.submit(const vk::ArrayProxy<const vk::SubmitInfo>
-    // &submits)
-
-    if (queue.submit(1, &submitInfo, inFlightFence) != vk::Result::eSuccess) {
-      throw std::runtime_error{
-          std::format("{}:{}: vkQueue.submit erred out", __FILE__, __LINE__)};
-    }
-
-    auto presentInfo = vk::PresentInfoKHR{};
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = &swapchain;
-    presentInfo.pImageIndices = &currentImageIndex;
-
-    if (presentQueue.presentKHR(presentInfo) != vk::Result::eSuccess) {
-      throw std::runtime_error{std::format(
-          "{}:{}: vkQueue.presentKHR erred out", __FILE__, __LINE__)};
-    }
+    redraw();
 
     std::cerr << "WaylandGfx initialized\n";
   }
+
+  void redraw() {
+    if (initialized) {
+      if (device.waitForFences(1, &inFlightFence, true, UINT64_MAX) !=
+          vk::Result::eSuccess) {
+        throw std::runtime_error{std::format("{}:{}: vkWaitForFences erred out",
+                                             __FILE__, __LINE__)};
+      }
+
+      if (device.resetFences(1, &inFlightFence) != vk::Result::eSuccess) {
+        throw std::runtime_error{
+            std::format("{}:{}: vkResetFences erred out", __FILE__, __LINE__)};
+      }
+
+      uint32_t currentImageIndex;
+      if (device.acquireNextImageKHR(
+              swapchain, UINT64_MAX, imageAvailableSemaphore, nullptr,
+              &currentImageIndex) != vk::Result::eSuccess) {
+        throw std::runtime_error{std::format(
+            "{}:{}: vkAcquireNextImageKHR erred out", __FILE__, __LINE__)};
+      }
+
+      commandBuffers.graphics[currentImageIndex].reset();
+      commandBuffers.present[0].reset();
+
+      vk::CommandBufferBeginInfo beginInfo;
+      commandBuffers.graphics[currentImageIndex].begin(beginInfo);
+
+      vk::RenderPassBeginInfo renderPassInfo;
+      renderPassInfo.renderPass = renderPass;
+      renderPassInfo.framebuffer = framebuffers[currentImageIndex];
+      renderPassInfo.renderArea.offset = {{0, 0}};
+      renderPassInfo.renderArea.extent = extent;
+
+      vk::ClearValue clearColor =
+          vk::ClearColorValue(std::array{1.0f, 0.3f, 0.0f, 1.0f});
+      renderPassInfo.clearValueCount = 1;
+      renderPassInfo.pClearValues = &clearColor;
+
+      commandBuffers.graphics[currentImageIndex].beginRenderPass(
+          renderPassInfo, vk::SubpassContents::eInline);
+
+      // commandBuffers.graphics[currentImageIndex].draw(0, 0, 0, 0);
+
+      commandBuffers.graphics[currentImageIndex].endRenderPass();
+
+      commandBuffers.graphics[currentImageIndex].end();
+
+      auto submitInfo = vk::SubmitInfo();
+      vk::PipelineStageFlags waitStages[] = {
+          vk::PipelineStageFlagBits::eColorAttachmentOutput};
+      submitInfo.waitSemaphoreCount = 1;
+      submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+
+      submitInfo.pWaitDstStageMask = waitStages;
+      submitInfo.commandBufferCount = 1;
+
+      submitInfo.pCommandBuffers = &commandBuffers.graphics[currentImageIndex];
+      submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
+      submitInfo.signalSemaphoreCount = 1;
+
+      // queue.submit(uint32_t submitCount, const vk::SubmitInfo *pSubmits,
+      // vk::Fence fence); queue.submit(const vk::ArrayProxy<const
+      // vk::SubmitInfo> &submits)
+
+      if (queue.submit(1, &submitInfo, inFlightFence) != vk::Result::eSuccess) {
+        throw std::runtime_error{
+            std::format("{}:{}: vkQueue.submit erred out", __FILE__, __LINE__)};
+      }
+
+      auto presentInfo = vk::PresentInfoKHR{};
+      presentInfo.waitSemaphoreCount = 1;
+      presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
+      presentInfo.swapchainCount = 1;
+      presentInfo.pSwapchains = &swapchain;
+      presentInfo.pImageIndices = &currentImageIndex;
+
+      if (presentQueue.presentKHR(presentInfo) != vk::Result::eSuccess) {
+        throw std::runtime_error{std::format(
+            "{}:{}: vkQueue.presentKHR erred out", __FILE__, __LINE__)};
+      }
+    }
+  };
 };
