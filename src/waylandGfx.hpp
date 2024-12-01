@@ -63,18 +63,22 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
     bool has_pointer = false;
 
     ~Display() {
-      if (ld_frame)
+      if (ld_frame != nullptr) {
         libdecor_frame_close(ld_frame);
-      if (ld_context) {
+      }
+
+      if (ld_context != nullptr) {
         libdecor_unref(ld_context);
       }
-      if (surface)
+
+      if (surface != nullptr) {
         wl_surface_destroy(surface);
+      }
     }
 
     Display() {
       display = wl_display_connect(nullptr);
-      if (!display) {
+      if (display == nullptr) {
         throw std::runtime_error(std::format("{}:{}:{}: Failed to connect to "
                                              "Wayland display server\n",
                                              __FILE__, __LINE__,
@@ -82,7 +86,7 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       }
 
       registry = wl_display_get_registry(display);
-      if (!registry) {
+      if (registry == nullptr) {
         throw std::runtime_error(std::format("{}:{}:{}: Failed to get "
                                              "Wayland registry\n",
                                              __FILE__, __LINE__,
@@ -92,8 +96,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       static wl_registry_listener registry_listener;
       registry_listener.global = [](void *data, wl_registry *registry,
                                     uint32_t name, const char *interface,
-                                    uint32_t version) {
-        auto self = static_cast<Display *>(data);
+                                    uint32_t /*version*/) {
+        auto *self = static_cast<Display *>(data);
         auto const siface = std::string_view(interface);
 
         if (siface == "wl_compositor") {
@@ -108,7 +112,7 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
               wl_registry_bind(registry, name, &xdg_wm_base_interface,
                                wl_output_interface.version));
           static auto listener = xdg_wm_base_listener{
-              .ping = [](void *data, struct xdg_wm_base *xdg_wm_base,
+              .ping = [](void * /*data*/, struct xdg_wm_base *xdg_wm_base,
                          uint32_t serial) {
                 xdg_wm_base_pong(xdg_wm_base, serial);
               }};
@@ -123,20 +127,22 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                   registry, name, &zxdg_decoration_manager_v1_interface,
                   zxdg_decoration_manager_v1_interface.version));
         } else {
-          if (Args::verbose() > 1)
+          if (Args::verbose() > 1) {
             std::cerr << std::format("{}:{} ignoring global {} ({})\n",
                                      __FILE__, __LINE__, name, interface);
+          }
         }
       };
 
-      registry_listener.global_remove = [](void *data, wl_registry *registry,
-                                           uint32_t name) {
-        // auto display = static_cast<Display *>(data);
-        if (Args::verbose() > 0)
-          std::cerr << std::format(
-              "{}:{}:{}: removed global {} from registry\n", __FILE__, __LINE__,
-              __PRETTY_FUNCTION__, name);
-      };
+      registry_listener.global_remove =
+          [](void * /*data*/, wl_registry * /*registry*/, uint32_t name) {
+            // auto display = static_cast<Display *>(data);
+            if (Args::verbose() > 0) {
+              std::cerr << std::format(
+                  "{}:{}:{}: removed global {} from registry\n", __FILE__,
+                  __LINE__, __PRETTY_FUNCTION__, name);
+            }
+          };
 
       if (wl_registry_add_listener(registry, &registry_listener, this) != 0) {
         throw std::runtime_error(std::format("{}:{}:{}: Failed to add listener "
@@ -152,13 +158,14 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                              __PRETTY_FUNCTION__));
       }
 
-      if (!display && compositor && output && xdg_wm_base) {
+      if (xdg_wm_base == nullptr || display == nullptr ||
+          compositor == nullptr || output == nullptr) {
         throw std::runtime_error(std::format(
             "{}:{}:{}: Failed to bind/initialize base Wayland facilities\n",
             __FILE__, __LINE__, __PRETTY_FUNCTION__));
       }
 
-      if (!seat) {
+      if (seat == nullptr) {
         throw std::runtime_error{
             std::format("{}:{}:{}: Wayland seat/input is required\n", __FILE__,
                         __LINE__, __PRETTY_FUNCTION__)};
@@ -167,15 +174,16 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       static auto output_listener = wl_output_listener{};
 
       output_listener.geometry =
-          [](void *data, wl_output *output, int32_t x, int32_t y,
+          [](void *data, wl_output * /*output*/, int32_t x, int32_t y,
              int32_t physical_width, int32_t physical_height, int32_t subpixel,
              const char *make, const char *model, int32_t transform) {
-            auto display = static_cast<Display *>(data);
+            auto *display = static_cast<Display *>(data);
 
-            display->output_geometry = {static_cast<uint32_t>(physical_width),
-                                        static_cast<uint32_t>(physical_height)};
+            display->output_geometry = {
+                .width = static_cast<uint32_t>(physical_width),
+                .height = static_cast<uint32_t>(physical_height)};
 
-            if (Args::verbose() > 0)
+            if (Args::verbose() > 0) {
               std::cerr << std::format(
                   "{}:{}: output geometry: x={}, y={}, "
                   "physical_width={}, "
@@ -183,14 +191,15 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                   "transform={}\n",
                   __FILE__, __LINE__, x, y, physical_width, physical_height,
                   subpixel, make, model, transform);
+            }
           };
 
       output_listener.mode = [](void *data, wl_output *output, uint32_t flags,
                                 int32_t width, int32_t height,
                                 int32_t refresh) {
         auto *display = static_cast<Display *>(data);
-        display->geometry = {static_cast<uint32_t>(width),
-                             static_cast<uint32_t>(height)};
+        display->geometry = {.width = static_cast<uint32_t>(width),
+                             .height = static_cast<uint32_t>(height)};
 
         if (Args::verbose() > 0)
           std::cerr << std::format(
@@ -260,11 +269,12 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                           },
 
                       .enter =
-                          [](void *data, wl_keyboard *kbd, uint32_t serial,
-                             wl_surface *surface, wl_array *keys) {
+                          [](void *data, wl_keyboard * /*kbd*/, uint32_t serial,
+                             wl_surface *surface, wl_array * /*keys*/) {
                             auto *self = static_cast<Display *>(data);
-                            if (surface == self->surface)
+                            if (surface == self->surface) {
                               self->has_kbd = true;
+                            }
 
                             if (Args::verbose() > 1)
                               std::cerr << std::format(
@@ -273,18 +283,19 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                           },
 
                       .leave =
-                          [](void *data, wl_keyboard *kbd, uint32_t serial,
+                          [](void *data, wl_keyboard * /*kbd*/, uint32_t serial,
                              wl_surface *surface) {
                             auto *self = static_cast<Display *>(data);
-                            if (surface == self->surface)
+                            if (surface == self->surface) {
                               self->has_kbd = false;
+                            }
                             if (Args::verbose() > 1)
                               std::cerr << std::format(
                                   "{}:{}: key leave: serial={}\n", __FILE__,
                                   __LINE__, serial);
                           },
                       .key =
-                          [](void *data, wl_keyboard *kbd, uint32_t serial,
+                          [](void *data, wl_keyboard * /*kbd*/, uint32_t serial,
                              uint32_t time, uint32_t key, uint32_t state) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
@@ -349,8 +360,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                   __FILE__, __LINE__, serial, x, y);
                           },
                       .leave =
-                          [](void *data, wl_pointer *pointer, uint32_t serial,
-                             wl_surface *surface) {
+                          [](void *data, wl_pointer * /*pointer*/,
+                             uint32_t serial, wl_surface *surface) {
                             auto *self = static_cast<Display *>(data);
 
                             if (self->surface == surface)
@@ -491,10 +502,11 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       return *this;
     }
 
-    int dispatch_events() {
+    [[nodiscard]] auto dispatch_events() const {
       auto retv = wl_display_dispatch(display);
-      if (ld_context)
+      if (ld_context != nullptr) {
         return libdecor_dispatch(ld_context, -1) < 0 ? -1 : retv;
+      }
       return retv;
     }
   };
@@ -515,20 +527,21 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       if (Args::verbose() > 0)
         std::cerr << std::format("{}:{}:{}: destroying window\n", __FILE__,
                                  __LINE__, __PRETTY_FUNCTION__);
-      if (xdg_toplevel)
+      if (xdg_toplevel != nullptr)
         xdg_toplevel_destroy(xdg_toplevel);
-      if (xdg_surface)
+      if (xdg_surface != nullptr)
         xdg_surface_destroy(xdg_surface);
     }
 
-    Window(std::shared_ptr<Display> display, std::function<void()> &&on_redraw,
+    Window(const std::shared_ptr<Display> &display,
+           std::function<void()> &&on_redraw,
            std::function<void(Geometry)> &&on_resize)
         : display(display), redraw_fn(std::move(on_redraw)),
           on_resize(std::move(on_resize)) {
       geometry.width = std::get<int64_t>(Config::get(Config::Key::GFX_WIDTH));
       geometry.height = std::get<int64_t>(Config::get(Config::Key::GFX_HEIGHT));
 
-      if (display->decoration_manager) {
+      if (display->decoration_manager != nullptr) {
         xdg_surface =
             xdg_wm_base_get_xdg_surface(display->xdg_wm_base, display->surface);
 
@@ -615,7 +628,7 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
 
         display->ld_context = libdecor_new(display->display, &ld_iface);
 
-        if (!display->ld_context) {
+        if (display->ld_context == nullptr) {
           throw std::runtime_error{
               std::format("{}:{}: libdecor_new failed\n", __FILE__, __LINE__)};
         }
@@ -626,11 +639,12 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                    void *data) {
                   auto *window = static_cast<Window *>(data);
 
-                  int width = 0, height = 0;
+                  int width = 0;
+                  int height = 0;
 
                   const bool is_initial_frame =
-                      libdecor_configuration_get_content_size(
-                          configuration, frame, &width, &height) == false;
+                      !libdecor_configuration_get_content_size(
+                          configuration, frame, &width, &height);
 
                   width = (width == 0) ? window->geometry.width : width;
                   height = (height == 0) ? window->geometry.height : height;
@@ -649,8 +663,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
 
                   if (!is_initial_frame) {
                     auto const new_geometry =
-                        Geometry{static_cast<uint32_t>(width),
-                                 static_cast<uint32_t>(height)};
+                        Geometry{.width = static_cast<uint32_t>(width),
+                                 .height = static_cast<uint32_t>(height)};
 
                     window->on_resize(new_geometry);
 
@@ -708,8 +722,9 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
 
     assert(window->display->surface);
 
-    if (on_tick)
+    if (on_tick) {
       this->on_tick = std::move(on_tick);
+    }
 
     {
 

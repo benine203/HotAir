@@ -5,6 +5,7 @@ include(GoogleTest)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT ENV{VCPKG_ROOT})
   FetchContent_Declare(vcpkg
@@ -134,7 +135,7 @@ list(APPEND HotAIR_Depends nlohmann_json nlohmann_json::nlohmann_json)
 list(APPEND HotAIR_Depends ${LIBDECOR_LIBRARIES})
 list(APPEND HotAIR_Depends cpptrace::cpptrace)
 
-list(APPEND HotAir_Sources main.cpp)
+list(APPEND HotAir_Sources main.cpp args.hpp)
 
 list(APPEND HotAir_Sources ${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.c
                       ${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-client-protocol.h

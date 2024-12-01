@@ -70,6 +70,10 @@ public:
 };
 
 struct Config {
+
+  /**
+   * known application configuration keys
+   */
   enum class Key {
     FULLSCREEN,
     GFX_WIDTH,
@@ -78,7 +82,7 @@ struct Config {
 
   using Value = std::variant<bool, int64_t, double, std::string>;
 
-  static inline std::string app_name = "HotAir";
+  static inline constexpr std::string app_name = "HotAir";
 
 private:
   static inline nlohmann::json config_doc;
@@ -92,6 +96,9 @@ private:
                       {Key::GFX_HEIGHT, {"/display/height", 600}}};
 
 public:
+  /**
+   *  Identifies a user-specific configuration directory.
+   */
   static auto get_config_dir() {
 #ifdef _WIN32
     if (auto const *appdata_dir = std::getenv("LOCALAPPDATA"); appdata_dir)
@@ -122,6 +129,9 @@ public:
     throw std::runtime_error("unsupported platform");
   }
 
+  /**
+   * Identifies a filesystem path to a user-specific config file
+   */
   static auto get_config_file() {
     auto const config_dir = get_config_dir();
     if (!std::filesystem::exists(config_dir))
@@ -133,6 +143,10 @@ public:
     return config_dir / "config.json";
   }
 
+  /**
+   *  Ensures a config file is present or one is created with defaults, loads it
+   *  and returns it in case caller wants to handle extra stuff
+   */
   static auto load() {
     // return cached config doc
     if (!config_doc.is_null())
@@ -179,6 +193,10 @@ public:
     ofs << config_doc.dump();
   }
 
+  /**
+   *  Get a config value by key.
+   *  Makes sure a config file is present or one is created with defaults.
+   */
   static Value get(Key key) {
     if (config_doc.is_null())
       load();
@@ -215,6 +233,11 @@ public:
     }
   }
 
+  /**
+   * Set a config value by key.
+   * Makes sure a config file is present or one is created with defaults.
+   * Setting a config value immediately writes it out to config.
+   */
   static void set(Key key, Value value) {
     if (config_doc.is_null())
       load();
