@@ -1,0 +1,66 @@
+---
+# .clang-tidy configuration file
+
+Checks: >
+  clang-analyzer-*,
+  -clang-analyzer-alpha.*,   # Disable experimental checks
+  -clang-analyzer-valist.*,  # Disable valist checks if not using variadic functions
+  -clang-analyzer-osx.*,     # Disable macOS-specific checks
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,  # Disable if not enforcing parameter swapping
+  modernize-*,
+  -modernize-use-trailing-return-type,    # Disable trailing return type suggestions
+  performance-*,
+  readability-*,
+  -readability-braces-around-statements,  # Disable if not enforcing braces around statements
+  -readability-magic-numbers,             # Disable if not enforcing magic number rules
+  concurrency-*,
+  portability-*,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,  # Disable if not enforcing private member variables
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-type-vararg,      # Allow vararg functions if used
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,  # Suppress if necessary
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -fuchsia-*,                # Disable Fuchsia OS checks
+  -hicpp-*,                  # Disable High Integrity C++ checks if not required
+  -mpi-*,                    # Disable MPI checks if not using MPI
+  -llvm-*,
+  -android-*,                # Disable Android-specific checks
+  -google-*                 # Disable Google-specific style checks
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '.*'
+
+FormatStyle:     file
+
+CheckOptions:
+  - key:             modernize-use-auto.MinTypeNameLength
+    value:           '5'
+  - key:             modernize-use-auto.RemoveStars
+    value:           'true'
+  - key:             readability-identifier-naming.VariableCase
+    value:           'lower_case'
+  - key:             readability-identifier-naming.MemberVariableCase
+    value:           'lower_case'
+  - key:             readability-identifier-naming.FunctionCase
+    value:           'camelBack'
+  - key:             readability-identifier-naming.ClassCase
+    value:           'CamelCase'
+  - key:             readability-identifier-naming.StructCase
+    value:           'CamelCase'
+  - key:             readability-identifier-naming.EnumCase
+    value:           'CamelCase'
+  - key:             readability-identifier-naming.EnumConstantCase
+    value:           'UPPER_CASE'
+  - key:             readability-identifier-naming.NamespaceCase
+    value:           'lower_case'
+  - key:             readability-identifier-naming.MacroDefinitionCase
+    value:           'UPPER_CASE'
+  - key:             cppcoreguidelines-init-variables.StrictMode
+    value:           'true'
+  - key:             modernize-use-nullptr.NullMacros
+    value:           'NULL'
+
