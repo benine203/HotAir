@@ -20,7 +20,7 @@ public:
   MMapped(std::filesystem::path const &path, bool lazy = false)
       : fpath_{path}, data_len_{0} {
     if (!lazy)
-      mmap_file();
+      mmapFile();
   }
 
   ~MMapped() {
@@ -57,12 +57,13 @@ public:
     return data_len_;
   }
 
-  void mmap_file() {
+  void mmapFile() {
     if (!std::filesystem::is_regular_file(fpath_))
       throw std::runtime_error{
           std::format("only supports mmapping regular files")};
 
-    if (auto fd = open(fpath_.c_str(), O_RDONLY); fd != -1) {
+    if (auto file_descriptor = open(fpath_.c_str(), O_RDONLY);
+        file_descriptor != -1) {
       auto const fsize = std::filesystem::file_size(fpath_);
 
       data_len_ = fsize;
@@ -84,7 +85,7 @@ public:
                                              __LINE__, strerror(errno))};
       }
 
-      close(fd);
+      close(file_descriptor);
     } else {
       throw std::runtime_error{std::format("{}:{}: open failed: {}", __FILE__,
                                            __LINE__, strerror(errno))};

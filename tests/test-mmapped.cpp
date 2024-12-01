@@ -53,7 +53,7 @@ TEST(TestMMappedFile, LazyRegularFile) {
 
   EXPECT_THROW(mmapped.size(), std::runtime_error);
 
-  mmapped.mmap_file();
+  mmapped.mmapFile();
 
   ASSERT_TRUE(mmapped);
 

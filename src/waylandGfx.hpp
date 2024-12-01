@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 static_assert(__cplusplus >= 202002L, "C++20 required");
 
 #include <cpptrace.hpp>
@@ -25,9 +26,14 @@ static_assert(__cplusplus >= 202002L, "C++20 required");
 /**
  *  Wayland-based concrete implementation on top of VulkanGfxBase
  */
-struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
+struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
   WaylandGfx() : VulkanGfxBase{this} {}
   virtual ~WaylandGfx() { VulkanGfxBase::~VulkanGfxBase(); }
+
+  WaylandGfx(const WaylandGfx &) = delete;
+  WaylandGfx(WaylandGfx &&) = delete;
+  WaylandGfx &operator=(const WaylandGfx &) = delete;
+  WaylandGfx &operator=(WaylandGfx &&) = delete;
 
   struct Window;
 
@@ -39,13 +45,13 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
     libdecor *ld_context = nullptr;
     libdecor_frame *ld_frame = nullptr;
 
-    Geometry geometry;
+    Geometry geometry = {.width = 0, .height = 0};
 
     wl_registry *registry = nullptr;
     wl_compositor *compositor = nullptr;
 
     wl_output *output = nullptr;
-    Geometry output_geometry;
+    Geometry output_geometry = {.width = 0, .height = 0};
 
     wl_surface *surface = nullptr;
 
@@ -76,8 +82,12 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       }
     }
 
-    Display() {
-      display = wl_display_connect(nullptr);
+    Display(Display const &) = delete;
+    Display(Display &&) = delete;
+    Display &operator=(Display const &) = delete;
+    Display &operator=(Display &&) = delete;
+
+    Display() : display(wl_display_connect(nullptr)) {
       if (display == nullptr) {
         throw std::runtime_error(std::format("{}:{}:{}: Failed to connect to "
                                              "Wayland display server\n",
@@ -174,7 +184,7 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       static auto output_listener = wl_output_listener{};
 
       output_listener.geometry =
-          [](void *data, wl_output * /*output*/, int32_t x, int32_t y,
+          [](void *data, wl_output * /*output*/, int32_t pos_x, int32_t pos_y,
              int32_t physical_width, int32_t physical_height, int32_t subpixel,
              const char *make, const char *model, int32_t transform) {
             auto *display = static_cast<Display *>(data);
@@ -189,13 +199,13 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                   "physical_width={}, "
                   "physical_height={}, subpixel={}, make={}, model={}, "
                   "transform={}\n",
-                  __FILE__, __LINE__, x, y, physical_width, physical_height,
-                  subpixel, make, model, transform);
+                  __FILE__, __LINE__, pos_x, pos_y, physical_width,
+                  physical_height, subpixel, make, model, transform);
             }
           };
 
-      output_listener.mode = [](void *data, wl_output *output, uint32_t flags,
-                                int32_t width, int32_t height,
+      output_listener.mode = [](void *data, wl_output * /*output*/,
+                                uint32_t flags, int32_t width, int32_t height,
                                 int32_t refresh) {
         auto *display = static_cast<Display *>(data);
         display->geometry = {.width = static_cast<uint32_t>(width),
@@ -208,26 +218,26 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
               __FILE__, __LINE__, flags, width, height, refresh);
       };
 
-      output_listener.done = [](void *data, wl_output *output) {
+      output_listener.done = [](void * /*data*/, wl_output * /*output*/) {
         if (Args::verbose() > 0)
           std::cerr << std::format("{}:{}: output done\n", __FILE__, __LINE__);
       };
 
-      output_listener.scale = [](void *data, wl_output *output,
+      output_listener.scale = [](void * /*data*/, wl_output * /*output*/,
                                  int32_t factor) {
         if (Args::verbose() > 0)
           std::cerr << std::format("{}:{} output scale: factor={}\n", __FILE__,
                                    __LINE__, factor);
       };
 
-      output_listener.description = [](void *data, wl_output *output,
+      output_listener.description = [](void * /*data*/, wl_output * /*output*/,
                                        const char *description) {
         if (Args::verbose() > 0)
           std::cerr << std::format("{}:{} output description: {}\n", __FILE__,
                                    __LINE__, description);
       };
 
-      output_listener.name = [](void *data, wl_output *output,
+      output_listener.name = [](void * /*data*/, wl_output * /*output*/,
                                 const char *name) {
         if (Args::verbose() > 0)
           std::cerr << std::format("{}:{} output name: {}\n", __FILE__,
@@ -259,13 +269,14 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                   static auto const kbd_listener = wl_keyboard_listener{
 
                       .keymap =
-                          [](void *data, wl_keyboard *kbd, uint32_t format,
-                             int32_t fd, uint32_t size) {
+                          [](void * /*data*/, wl_keyboard * /*kbd*/,
+                             uint32_t format, int32_t keymap_fd,
+                             uint32_t size) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
                                   "{}:{}: keymap: format={}, fd={}, size = "
                                   "{}\n ",
-                                  __FILE__, __LINE__, format, fd, size);
+                                  __FILE__, __LINE__, format, keymap_fd, size);
                           },
 
                       .enter =
@@ -295,8 +306,9 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                   __LINE__, serial);
                           },
                       .key =
-                          [](void *data, wl_keyboard * /*kbd*/, uint32_t serial,
-                             uint32_t time, uint32_t key, uint32_t state) {
+                          [](void * /*data*/, wl_keyboard * /*kbd*/,
+                             uint32_t serial, uint32_t time, uint32_t key,
+                             uint32_t state) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
                                   "{}:{}: key event: serial={}, time={}, "
@@ -306,9 +318,10 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                           },
 
                       .modifiers =
-                          [](void *data, wl_keyboard *kbd, uint32_t serial,
-                             uint32_t mods_depressed, uint32_t mods_latched,
-                             uint32_t mods_locked, uint32_t group) {
+                          [](void * /*data*/, wl_keyboard * /*kbd*/,
+                             uint32_t serial, uint32_t mods_depressed,
+                             uint32_t mods_latched, uint32_t mods_locked,
+                             uint32_t group) {
                             if (Args::verbose() > 1)
                               std::cerr << std::format(
                                   "{}:{}: key modifiers: serial={}, "
@@ -320,8 +333,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                           },
 
                       .repeat_info =
-                          [](void *data, wl_keyboard *kbd, int32_t rate,
-                             int32_t delay) {
+                          [](void * /*data*/, wl_keyboard * /*kbd*/,
+                             int32_t rate, int32_t delay) {
                             if (Args::verbose() > 1)
                               std::cerr << std::format(
                                   "{}:{}: key repeat info: rate={}, delay = "
@@ -343,21 +356,22 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
 
                   static auto const pointer_listener = wl_pointer_listener{
                       .enter =
-                          [](void *data, wl_pointer *pointer, uint32_t serial,
-                             wl_surface *surface, wl_fixed_t x, wl_fixed_t y) {
+                          [](void *data, wl_pointer * /*pointer*/,
+                             uint32_t serial, wl_surface *surface,
+                             wl_fixed_t surface_x, wl_fixed_t surface_y) {
                             auto *self = static_cast<Display *>(data);
 
                             if (surface == self->surface)
                               self->has_pointer = true;
 
-                            x = wl_fixed_to_int(x);
-                            y = wl_fixed_to_int(y);
+                            auto const local_x = wl_fixed_to_int(surface_x);
+                            auto const local_y = wl_fixed_to_int(surface_y);
 
                             if (Args::verbose() > 1)
                               std::cerr << std::format(
                                   "{}:{}: pointer enter: serial={}, x={}, "
                                   "y={}\n",
-                                  __FILE__, __LINE__, serial, x, y);
+                                  __FILE__, __LINE__, serial, local_x, local_y);
                           },
                       .leave =
                           [](void *data, wl_pointer * /*pointer*/,
@@ -373,36 +387,41 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                   __LINE__, serial);
                           },
                       .motion =
-                          [](void *data, wl_pointer *pointer, uint32_t time,
-                             wl_fixed_t x, wl_fixed_t y) {
+                          [](void *data, wl_pointer * /*pointer*/,
+                             uint32_t time, wl_fixed_t surface_x,
+                             wl_fixed_t surface_y) {
                             auto *self = static_cast<Display *>(data);
 
                             if (!self->has_pointer)
                               return;
 
                             if (Args::verbose() > 2) {
-                              int frame_x, frame_y;
+                              int frame_x = -1;
+                              int frame_y = -1;
+
                               libdecor_frame_translate_coordinate(
-                                  self->ld_frame, wl_fixed_to_int(x),
-                                  wl_fixed_to_int(y), &frame_x, &frame_y);
+                                  self->ld_frame, wl_fixed_to_int(surface_x),
+                                  wl_fixed_to_int(surface_y), &frame_x,
+                                  &frame_y);
 
                               std::cerr << "frame_x: " << frame_x
-                                        << " frame_y: " << frame_y << std::endl;
+                                        << " frame_y: " << frame_y << '\n';
                             }
 
-                            x = wl_fixed_to_int(x);
-                            y = wl_fixed_to_int(y);
+                            auto const local_x = wl_fixed_to_int(surface_x);
+                            auto const local_y = wl_fixed_to_int(surface_y);
 
                             if (Args::verbose() > 2) {
                               std::cerr << std::format("{}:{}: pointer motion: "
                                                        "time={}, x={}, y={}\n",
                                                        __FILE__, __LINE__, time,
-                                                       x, y);
+                                                       local_x, local_y);
                             }
                           },
                       .button =
-                          [](void *data, wl_pointer *pointer, uint32_t serial,
-                             uint32_t time, uint32_t button, uint32_t state) {
+                          [](void * /*data*/, wl_pointer * /*pointer*/,
+                             uint32_t serial, uint32_t time, uint32_t button,
+                             uint32_t state) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
                                   "{}:{}: pointer button: serial={}, time={}, "
@@ -411,8 +430,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                   state);
                           },
                       .axis =
-                          [](void *data, wl_pointer *pointer, uint32_t time,
-                             uint32_t axis, wl_fixed_t value) {
+                          [](void * /*data*/, wl_pointer * /*pointer*/,
+                             uint32_t time, uint32_t axis, wl_fixed_t value) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
                                   "{}:{}: pointer axis: time={}, axis={}, "
@@ -420,13 +439,13 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                   __FILE__, __LINE__, time, axis, value);
                           },
                       .frame =
-                          [](void *data, wl_pointer *pointer) {
+                          [](void * /*data*/, wl_pointer * /*pointer*/) {
                             if (Args::verbose() > 2)
                               std::cerr << std::format("{}:{}: pointer frame\n",
                                                        __FILE__, __LINE__);
                           },
                       .axis_source =
-                          [](void *data, wl_pointer *pointer,
+                          [](void * /*data*/, wl_pointer * /*pointer*/,
                              uint32_t axis_source) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
@@ -435,8 +454,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                   __FILE__, __LINE__, axis_source);
                           },
                       .axis_stop =
-                          [](void *data, wl_pointer *pointer, uint32_t time,
-                             uint32_t axis) {
+                          [](void * /*data*/, wl_pointer * /*pointer*/,
+                             uint32_t time, uint32_t axis) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
                                   "{}:{}: pointer axis stop: time={}, "
@@ -444,8 +463,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                   __FILE__, __LINE__, time, axis);
                           },
                       .axis_discrete =
-                          [](void *data, wl_pointer *pointer, uint32_t axis,
-                             int32_t discrete) {
+                          [](void * /*data*/, wl_pointer * /*pointer*/,
+                             uint32_t axis, int32_t discrete) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
                                   "{}:{}: pointer axis discrete: axis={}, "
@@ -454,8 +473,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                           },
 
                       .axis_value120 =
-                          [](void *data, wl_pointer *pointer, uint32_t axis,
-                             int32_t value) {
+                          [](void * /*data*/, wl_pointer * /*pointer*/,
+                             uint32_t axis, int32_t value) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
                                   "{}:{}: pointer axis value120: axis={}, "
@@ -464,8 +483,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                           },
 
                       .axis_relative_direction =
-                          [](void *data, wl_pointer *pointer, uint32_t axis,
-                             uint32_t direction) {
+                          [](void * /*data*/, wl_pointer * /*pointer*/,
+                             uint32_t axis, uint32_t direction) {
                             if (Args::verbose() > 0)
                               std::cerr << std::format(
                                   "{}:{}: pointer axis relative direction: "
@@ -478,7 +497,7 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                 }
               },
           .name =
-              [](void *data, wl_seat *seat, const char *name) {
+              [](void * /*data*/, wl_seat * /*seat*/, const char *name) {
                 if (Args::verbose() > 0)
                   std::cerr << std::format("{}:{}: seat name: {}\n", __FILE__,
                                            __LINE__, name);
@@ -497,12 +516,7 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       std::cerr << "Wayland display initialized\n";
     }
 
-    Display &operator=(wl_display *display) {
-      this->display = display;
-      return *this;
-    }
-
-    [[nodiscard]] auto dispatch_events() const {
+    [[nodiscard]] auto dispatchEvents() const {
       auto retv = wl_display_dispatch(display);
       if (ld_context != nullptr) {
         return libdecor_dispatch(ld_context, -1) < 0 ? -1 : retv;
@@ -515,7 +529,7 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
     std::shared_ptr<Display> display;
     xdg_surface *xdg_surface = nullptr;
     xdg_toplevel *xdg_toplevel = nullptr;
-    Geometry geometry;
+    Geometry geometry{};
 
     std::atomic<bool> configured = false;
     std::atomic<bool> closed = false;
@@ -532,6 +546,12 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
       if (xdg_surface != nullptr)
         xdg_surface_destroy(xdg_surface);
     }
+
+    Window() = delete;
+    Window(Window const &) = delete;
+    Window(Window &&) = delete;
+    Window &operator=(Window const &) = delete;
+    Window &operator=(Window &&) = delete;
 
     Window(const std::shared_ptr<Display> &display,
            std::function<void()> &&on_redraw,
@@ -573,9 +593,10 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
 
         static auto toplevel_listener = xdg_toplevel_listener{
             .configure =
-                [](void *data, struct xdg_toplevel *xdg_toplevel, int32_t width,
-                   int32_t height, struct wl_array *states) {
-                  auto window = static_cast<Window *>(data);
+                [](void * /*data*/, struct xdg_toplevel * /*xdg_toplevel*/,
+                   int32_t width, int32_t height,
+                   struct wl_array * /*states*/) {
+                  // auto *window = static_cast<Window *>(data);
                   // window->geometry = {static_cast<uint32_t>(width),
                   //                     static_cast<uint32_t>(height)};
                   if (Args::verbose() > 0)
@@ -584,16 +605,18 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                         __FILE__, __LINE__, width, height);
                 },
             .close =
-                [](void *data, struct xdg_toplevel *xdg_toplevel) {
-                  auto window = static_cast<Window *>(data);
+                [](void *data, struct xdg_toplevel * /*xdg_toplevel*/) {
+                  auto *window = static_cast<Window *>(data);
+
                   window->closed.store(true);
+
                   if (Args::verbose() > 0)
                     std::cerr << std::format("{}:{}: toplevel close\n",
                                              __FILE__, __LINE__);
                 },
             .configure_bounds =
-                [](void *data, struct xdg_toplevel *xdg_toplevel, int32_t width,
-                   int32_t height) {
+                [](void * /*data*/, struct xdg_toplevel * /*xdg_toplevel*/,
+                   int32_t width, int32_t height) {
                   if (Args::verbose() > 0)
                     std::cerr
                         << std::format("{}:{}: toplevel configure_bounds: "
@@ -601,8 +624,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                                        __FILE__, __LINE__, width, height);
                 },
             .wm_capabilities =
-                [](void *data, struct xdg_toplevel *xdg_toplevel,
-                   wl_array *capabilities) {
+                [](void * /*data*/, struct xdg_toplevel * /*xdg_toplevel*/,
+                   wl_array * /*capabilities*/) {
                   if (Args::verbose() > 0)
                     std::cerr
                         << std::format("{}:{}: toplevel wm_capabilities\n",
@@ -620,7 +643,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
         // libdecor
         static struct libdecor_interface ld_iface = {
             .error =
-                [](libdecor *ctx, libdecor_error error, const char *message) {
+                [](libdecor * /*ctx*/, libdecor_error /*error*/,
+                   const char *message) {
                   std::cerr << std::format("{}:{}: libdecor error: {}\n",
                                            __FILE__, __LINE__, message);
                 },
@@ -646,13 +670,20 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                       !libdecor_configuration_get_content_size(
                           configuration, frame, &width, &height);
 
-                  width = (width == 0) ? window->geometry.width : width;
-                  height = (height == 0) ? window->geometry.height : height;
+                  width = (width == 0) ? static_cast<int>(std::clamp<uint32_t>(
+                                             window->geometry.width, 1U,
+                                             std::numeric_limits<int>::max()))
+                                       : width;
+                  height = (height == 0)
+                               ? static_cast<int>(std::clamp<uint32_t>(
+                                     window->geometry.height, 1U,
+                                     std::numeric_limits<int>::max()))
+                               : height;
 
-                  // if (Args::verbose() > 1)
-                  std::cerr << std::format(
-                      "{}:{}: libdecor configure: width={}, height={}\n",
-                      __FILE__, __LINE__, width, height);
+                  if (Args::verbose() > 0)
+                    std::cerr << std::format(
+                        "{}:{}: libdecor configure: width={}, height={}\n",
+                        __FILE__, __LINE__, width, height);
 
                   libdecor_state *state = libdecor_state_new(width, height);
                   libdecor_frame_commit(frame, state, configuration);
@@ -674,14 +705,14 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
                   wl_surface_commit(window->display->surface);
                 },
             .close =
-                [](libdecor_frame *frame, void *data) {
+                [](libdecor_frame * /*frame*/, void *data) {
                   auto *window = static_cast<Window *>(data);
                   window->closed.store(true);
                   window->closed.notify_all();
                 },
 
             .commit =
-                [](libdecor_frame *frame, void *data) {
+                [](libdecor_frame * /*frame*/, void *data) {
                   auto *window = static_cast<Window *>(data);
                   wl_surface_commit(window->display->surface);
                 },
@@ -716,9 +747,9 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
   std::atomic<bool> initialized = false;
   std::function<bool()> on_tick = []() { return true; };
 
-  auto get_geometry() -> Geometry override { return window->geometry; }
+  auto getGeometry() -> Geometry override { return window->geometry; }
 
-  void platform_event_loop(std::function<bool()> &&on_tick) override {
+  void platformEventLoop(std::function<bool()> &&on_tick) override {
 
     assert(window->display->surface);
 
@@ -729,9 +760,9 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
     {
 
       static const wl_callback_listener frame_listener = wl_callback_listener{
-          .done = [](void *data, wl_callback *cb, uint32_t time) {
+          .done = [](void *data, wl_callback *frame_cback, uint32_t /*time*/) {
             auto *self = static_cast<WaylandGfx *>(data);
-            wl_callback_destroy(cb);
+            wl_callback_destroy(frame_cback);
 
             if (Args::verbose() > 2)
               std::cerr << ".";
@@ -761,11 +792,11 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
             //  wl_display_flush(self->display->display);
           }};
 
-      auto *cb = wl_surface_frame(window->display->surface);
-      wl_callback_add_listener(cb, &frame_listener, this);
+      auto *cback = wl_surface_frame(window->display->surface);
+      wl_callback_add_listener(cback, &frame_listener, this);
     }
 
-    while (display->dispatch_events() != -1) {
+    while (display->dispatchEvents() != -1) {
       if (window->closed)
         break;
     }
@@ -816,12 +847,12 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
           .surface = display->surface,
       };
 
-      VkSurfaceKHR vksurface;
+      VkSurfaceKHR vksurface = nullptr;
 
       if (auto result = vkCreateWaylandSurfaceKHR(
               /* VulkanGfxBase:: */ instance, &create_info, nullptr,
               &vksurface);
-          result != VK_SUCCESS) {
+          result != VK_SUCCESS || vksurface == nullptr) {
         throw std::runtime_error(
             std::format("{}:{}:{}: Failed to create Wayland "
                         "surface\n",
@@ -846,8 +877,8 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
 
   void redraw() {
     if (initialized) {
-      if (device.waitForFences(1, &inFlightFence, true, UINT64_MAX) !=
-          vk::Result::eSuccess) {
+      if (device.waitForFences(1, &inFlightFence, vk::Bool32{true},
+                               UINT64_MAX) != vk::Result::eSuccess) {
         throw std::runtime_error{std::format("{}:{}: vkWaitForFences erred out",
                                              __FILE__, __LINE__)};
       }
@@ -857,70 +888,73 @@ struct WaylandGfx : public PlatformGfx, public VulkanGfxBase {
             std::format("{}:{}: vkResetFences erred out", __FILE__, __LINE__)};
       }
 
-      uint32_t currentImageIndex;
+      uint32_t current_image_index = 0;
+
       if (device.acquireNextImageKHR(
               swapchain, UINT64_MAX, imageAvailableSemaphore, nullptr,
-              &currentImageIndex) != vk::Result::eSuccess) {
+              &current_image_index) != vk::Result::eSuccess) {
         throw std::runtime_error{std::format(
             "{}:{}: vkAcquireNextImageKHR erred out", __FILE__, __LINE__)};
       }
 
-      commandBuffers.graphics[currentImageIndex].reset();
+      commandBuffers.graphics[current_image_index].reset();
       commandBuffers.present[0].reset();
 
-      vk::CommandBufferBeginInfo beginInfo;
-      commandBuffers.graphics[currentImageIndex].begin(beginInfo);
+      vk::CommandBufferBeginInfo begin_info;
+      commandBuffers.graphics[current_image_index].begin(begin_info);
 
-      vk::RenderPassBeginInfo renderPassInfo;
-      renderPassInfo.renderPass = renderPass;
-      renderPassInfo.framebuffer = framebuffers[currentImageIndex];
-      renderPassInfo.renderArea.offset = {{0, 0}};
-      renderPassInfo.renderArea.extent = extent;
+      vk::RenderPassBeginInfo render_pass_info;
+      render_pass_info.renderPass = renderPass;
+      render_pass_info.framebuffer = framebuffers[current_image_index];
+      render_pass_info.renderArea.offset = {{0, 0}};
+      render_pass_info.renderArea.extent = extent;
 
-      vk::ClearValue clearColor =
+      vk::ClearValue clear_color =
           vk::ClearColorValue(std::array{1.0f, 0.3f, 0.0f, 1.0f});
-      renderPassInfo.clearValueCount = 1;
-      renderPassInfo.pClearValues = &clearColor;
+      render_pass_info.clearValueCount = 1;
+      render_pass_info.pClearValues = &clear_color;
 
-      commandBuffers.graphics[currentImageIndex].beginRenderPass(
-          renderPassInfo, vk::SubpassContents::eInline);
+      commandBuffers.graphics[current_image_index].beginRenderPass(
+          render_pass_info, vk::SubpassContents::eInline);
 
       // commandBuffers.graphics[currentImageIndex].draw(0, 0, 0, 0);
 
-      commandBuffers.graphics[currentImageIndex].endRenderPass();
+      commandBuffers.graphics[current_image_index].endRenderPass();
 
-      commandBuffers.graphics[currentImageIndex].end();
+      commandBuffers.graphics[current_image_index].end();
 
-      auto submitInfo = vk::SubmitInfo();
-      vk::PipelineStageFlags waitStages[] = {
+      auto submit_info = vk::SubmitInfo();
+      auto wait_stages = std::array<vk::PipelineStageFlags, 1>{
           vk::PipelineStageFlagBits::eColorAttachmentOutput};
-      submitInfo.waitSemaphoreCount = 1;
-      submitInfo.pWaitSemaphores = &imageAvailableSemaphore;
+      submit_info.waitSemaphoreCount = 1;
+      submit_info.pWaitSemaphores = &imageAvailableSemaphore;
 
-      submitInfo.pWaitDstStageMask = waitStages;
-      submitInfo.commandBufferCount = 1;
+      submit_info.pWaitDstStageMask = wait_stages.data();
+      submit_info.commandBufferCount = 1;
 
-      submitInfo.pCommandBuffers = &commandBuffers.graphics[currentImageIndex];
-      submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
-      submitInfo.signalSemaphoreCount = 1;
+      submit_info.pCommandBuffers =
+          &commandBuffers.graphics[current_image_index];
+      submit_info.pSignalSemaphores = &renderFinishedSemaphore;
+      submit_info.signalSemaphoreCount = 1;
 
       // queue.submit(uint32_t submitCount, const vk::SubmitInfo *pSubmits,
       // vk::Fence fence); queue.submit(const vk::ArrayProxy<const
       // vk::SubmitInfo> &submits)
 
-      if (queue.submit(1, &submitInfo, inFlightFence) != vk::Result::eSuccess) {
+      if (queue.submit(1, &submit_info, inFlightFence) !=
+          vk::Result::eSuccess) {
         throw std::runtime_error{
             std::format("{}:{}: vkQueue.submit erred out", __FILE__, __LINE__)};
       }
 
-      auto presentInfo = vk::PresentInfoKHR{};
-      presentInfo.waitSemaphoreCount = 1;
-      presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
-      presentInfo.swapchainCount = 1;
-      presentInfo.pSwapchains = &swapchain;
-      presentInfo.pImageIndices = &currentImageIndex;
+      auto present_info = vk::PresentInfoKHR{};
+      present_info.waitSemaphoreCount = 1;
+      present_info.pWaitSemaphores = &renderFinishedSemaphore;
+      present_info.swapchainCount = 1;
+      present_info.pSwapchains = &swapchain;
+      present_info.pImageIndices = &current_image_index;
 
-      if (presentQueue.presentKHR(presentInfo) != vk::Result::eSuccess) {
+      if (presentQueue.presentKHR(present_info) != vk::Result::eSuccess) {
         throw std::runtime_error{std::format(
             "{}:{}: vkQueue.presentKHR erred out", __FILE__, __LINE__)};
       }

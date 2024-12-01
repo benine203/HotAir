@@ -22,10 +22,10 @@ int main(int argc, char **argv) {
 
   gfx->init();
 
-  auto loop_accounting_ticks = 0ull;
+  auto loop_accounting_ticks = 0ULL;
   auto loop_accounting_last = std::chrono::high_resolution_clock::now();
 
-  gfx->platform_event_loop([&]() {
+  gfx->platformEventLoop([&]() {
     auto const t_now = std::chrono::high_resolution_clock::now();
 
     auto const t_diff = std::chrono::duration_cast<std::chrono::milliseconds>(

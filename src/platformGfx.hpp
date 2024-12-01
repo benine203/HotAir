@@ -22,7 +22,7 @@ struct PlatformGfx {
     }
   };
 
-  virtual Geometry get_geometry() = 0;
+  virtual Geometry getGeometry() = 0;
 
   virtual void init() = 0;
 
@@ -30,5 +30,5 @@ struct PlatformGfx {
    * Event loop with user-supplied callback.
    * Halts when on_tick returns false.
    */
-  virtual void platform_event_loop(std::function<bool()> &&on_tick) = 0;
+  virtual void platformEventLoop(std::function<bool()> &&on_tick) = 0;
 };

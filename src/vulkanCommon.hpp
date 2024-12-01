@@ -47,8 +47,8 @@ protected:
                         // commandPools
 
   /* user-supplied callback */
-  vk::SurfaceKHR *surface; // this is a pointer because it's created by the
-                           // platform-specific code
+  vk::SurfaceKHR *surface{}; // this is a pointer because it's created by the
+                             // platform-specific code
 
   /* createSwapchain */
   vk::SwapchainKHR swapchain;
@@ -278,8 +278,8 @@ public:
     }
 
     if (!imageViews.empty()) {
-      for (auto &imageView : imageViews) {
-        device.destroyImageView(imageView);
+      for (auto &image_view : imageViews) {
+        device.destroyImageView(image_view);
       }
       if (verbose > 1) {
         std::cerr << std::format("{}:{}: {} image views destroyed\n", __FILE__,
@@ -303,7 +303,7 @@ public:
 
     pickPhysicalDevice();
 
-    if (!surface) {
+    if (surface == nullptr) {
       if (!create_surface_fn)
         throw std::runtime_error{std::format(
             "{}:{}: create_surface fn must be a valid cb", __FILE__, __LINE__)};
@@ -374,8 +374,8 @@ private:
       return;
     }
 
-    vk::ApplicationInfo appInfo("HotAir", VK_MAKE_VERSION(1, 0, 0), "Baloon",
-                                VK_MAKE_VERSION(1, 0, 0));
+    vk::ApplicationInfo app_info("HotAir", VK_MAKE_VERSION(1, 0, 0), "Baloon",
+                                 VK_MAKE_VERSION(1, 0, 0));
 
     auto extensions = vk::enumerateInstanceExtensionProperties();
 
@@ -387,16 +387,16 @@ private:
     }
 
     auto names = std::vector<const char *>(extensions.size());
-    for (auto i = 0u; i < extensions.size(); ++i) {
+    for (auto i = 0U; i < extensions.size(); ++i) {
       names[i] = extensions[i].extensionName;
     }
 
-    auto createInfo = vk::InstanceCreateInfo();
-    createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = names.size();
-    createInfo.ppEnabledExtensionNames = names.data();
+    auto create_info = vk::InstanceCreateInfo();
+    create_info.pApplicationInfo = &app_info;
+    create_info.enabledExtensionCount = names.size();
+    create_info.ppEnabledExtensionNames = names.data();
 
-    instance = vk::createInstance(createInfo);
+    instance = vk::createInstance(create_info);
     if (!instance) {
       throw std::runtime_error("failed to create instance");
     }
@@ -490,22 +490,22 @@ private:
   void createImageViews() {
     imageViews.resize(images.size());
 
-    for (auto i = 0u; i < images.size(); ++i) {
-      auto createInfo = vk::ImageViewCreateInfo();
-      createInfo.image = images[i];
-      createInfo.viewType = vk::ImageViewType::e2D;
-      createInfo.format = format;
-      createInfo.components.r = vk::ComponentSwizzle::eIdentity;
-      createInfo.components.g = vk::ComponentSwizzle::eIdentity;
-      createInfo.components.b = vk::ComponentSwizzle::eIdentity;
-      createInfo.components.a = vk::ComponentSwizzle::eIdentity;
-      createInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-      createInfo.subresourceRange.baseMipLevel = 0;
-      createInfo.subresourceRange.levelCount = 1;
-      createInfo.subresourceRange.baseArrayLayer = 0;
-      createInfo.subresourceRange.layerCount = 1;
+    for (auto i = 0U; i < images.size(); ++i) {
+      auto create_info = vk::ImageViewCreateInfo();
+      create_info.image = images[i];
+      create_info.viewType = vk::ImageViewType::e2D;
+      create_info.format = format;
+      create_info.components.r = vk::ComponentSwizzle::eIdentity;
+      create_info.components.g = vk::ComponentSwizzle::eIdentity;
+      create_info.components.b = vk::ComponentSwizzle::eIdentity;
+      create_info.components.a = vk::ComponentSwizzle::eIdentity;
+      create_info.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+      create_info.subresourceRange.baseMipLevel = 0;
+      create_info.subresourceRange.levelCount = 1;
+      create_info.subresourceRange.baseArrayLayer = 0;
+      create_info.subresourceRange.layerCount = 1;
 
-      imageViews[i] = device.createImageView(createInfo);
+      imageViews[i] = device.createImageView(create_info);
       if (!imageViews[i]) {
         throw std::runtime_error("failed to create image views");
       }
@@ -517,24 +517,24 @@ private:
   }
 
   void createRenderPass() {
-    auto colorAttachment = vk::AttachmentDescription();
-    colorAttachment.format = format;
-    colorAttachment.samples = vk::SampleCountFlagBits::e1;
-    colorAttachment.loadOp = vk::AttachmentLoadOp::eClear;
-    colorAttachment.storeOp = vk::AttachmentStoreOp::eStore;
-    colorAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-    colorAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-    colorAttachment.initialLayout = vk::ImageLayout::eUndefined;
-    colorAttachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
+    auto color_attachment = vk::AttachmentDescription();
+    color_attachment.format = format;
+    color_attachment.samples = vk::SampleCountFlagBits::e1;
+    color_attachment.loadOp = vk::AttachmentLoadOp::eClear;
+    color_attachment.storeOp = vk::AttachmentStoreOp::eStore;
+    color_attachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+    color_attachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+    color_attachment.initialLayout = vk::ImageLayout::eUndefined;
+    color_attachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
 
-    auto colorAttachmentRef = vk::AttachmentReference();
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = vk::ImageLayout::eColorAttachmentOptimal;
+    auto color_attachment_ref = vk::AttachmentReference();
+    color_attachment_ref.attachment = 0;
+    color_attachment_ref.layout = vk::ImageLayout::eColorAttachmentOptimal;
 
     auto subpass = vk::SubpassDescription();
     subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
     subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
+    subpass.pColorAttachments = &color_attachment_ref;
 
     auto dependency = vk::SubpassDependency();
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -545,15 +545,15 @@ private:
     dependency.dstAccessMask = vk::AccessFlagBits::eColorAttachmentRead |
                                vk::AccessFlagBits::eColorAttachmentWrite;
 
-    auto renderPassInfo = vk::RenderPassCreateInfo();
-    renderPassInfo.attachmentCount = 1;
-    renderPassInfo.pAttachments = &colorAttachment;
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-    renderPassInfo.dependencyCount = 1;
-    renderPassInfo.pDependencies = &dependency;
+    auto render_pass_info = vk::RenderPassCreateInfo();
+    render_pass_info.attachmentCount = 1;
+    render_pass_info.pAttachments = &color_attachment;
+    render_pass_info.subpassCount = 1;
+    render_pass_info.pSubpasses = &subpass;
+    render_pass_info.dependencyCount = 1;
+    render_pass_info.pDependencies = &dependency;
 
-    renderPass = device.createRenderPass(renderPassInfo);
+    renderPass = device.createRenderPass(render_pass_info);
     if (!renderPass) {
       throw std::runtime_error("failed to create render pass");
     }
@@ -586,17 +586,17 @@ private:
 
     // auto shaderStages = std::vector{vertShaderStageInfo,
     // fragShaderStageInfo};
-    auto shaderStages = std::vector<vk::PipelineShaderStageCreateInfo>();
+    auto shader_stages = std::vector<vk::PipelineShaderStageCreateInfo>();
 
-    auto vertexInputInfo = vk::PipelineVertexInputStateCreateInfo();
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.pVertexBindingDescriptions = nullptr;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+    auto vertex_input_info = vk::PipelineVertexInputStateCreateInfo();
+    vertex_input_info.vertexBindingDescriptionCount = 0;
+    vertex_input_info.pVertexBindingDescriptions = nullptr;
+    vertex_input_info.vertexAttributeDescriptionCount = 0;
+    vertex_input_info.pVertexAttributeDescriptions = nullptr;
 
-    auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo();
-    inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
-    inputAssembly.primitiveRestartEnable = false;
+    auto input_assembly = vk::PipelineInputAssemblyStateCreateInfo();
+    input_assembly.topology = vk::PrimitiveTopology::eTriangleList;
+    input_assembly.primitiveRestartEnable = vk::Bool32{false};
 
     auto viewport = vk::Viewport();
     viewport.x = 0.0f;
@@ -610,74 +610,75 @@ private:
     scissor.offset = vk::Offset2D(0, 0);
     scissor.extent = extent;
 
-    auto viewportState = vk::PipelineViewportStateCreateInfo();
-    viewportState.viewportCount = 1;
-    viewportState.pViewports = &viewport;
-    viewportState.scissorCount = 1;
-    viewportState.pScissors = &scissor;
+    auto viewport_state = vk::PipelineViewportStateCreateInfo();
+    viewport_state.viewportCount = 1;
+    viewport_state.pViewports = &viewport;
+    viewport_state.scissorCount = 1;
+    viewport_state.pScissors = &scissor;
 
     auto rasterizer = vk::PipelineRasterizationStateCreateInfo();
-    rasterizer.depthClampEnable = false;
-    rasterizer.rasterizerDiscardEnable = false;
+    rasterizer.depthClampEnable = vk::Bool32{false};
+    rasterizer.rasterizerDiscardEnable = vk::Bool32{false};
     rasterizer.polygonMode = vk::PolygonMode::eFill;
     rasterizer.lineWidth = 1.0f;
     rasterizer.cullMode = vk::CullModeFlagBits::eBack;
     rasterizer.frontFace = vk::FrontFace::eClockwise;
-    rasterizer.depthBiasEnable = false;
+    rasterizer.depthBiasEnable = vk::Bool32{false};
 
     auto multisampling = vk::PipelineMultisampleStateCreateInfo();
-    multisampling.sampleShadingEnable = false;
+    multisampling.sampleShadingEnable = vk::Bool32{false};
     multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
 
-    auto colorBlendAttachment = vk::PipelineColorBlendAttachmentState();
-    colorBlendAttachment.colorWriteMask =
+    auto color_blend_attachment = vk::PipelineColorBlendAttachmentState();
+    color_blend_attachment.colorWriteMask =
         vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
         vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
-    colorBlendAttachment.blendEnable = false;
+    color_blend_attachment.blendEnable = vk::Bool32{false};
 
-    auto colorBlending = vk::PipelineColorBlendStateCreateInfo();
-    colorBlending.logicOpEnable = false;
-    colorBlending.logicOp = vk::LogicOp::eCopy;
-    colorBlending.attachmentCount = 1;
-    colorBlending.pAttachments = &colorBlendAttachment;
-    colorBlending.blendConstants[0] = 0.0f;
-    colorBlending.blendConstants[1] = 0.0f;
-    colorBlending.blendConstants[2] = 0.0f;
-    colorBlending.blendConstants[3] = 0.0f;
+    auto color_blending = vk::PipelineColorBlendStateCreateInfo();
+    color_blending.logicOpEnable = vk::Bool32{false};
+    color_blending.logicOp = vk::LogicOp::eCopy;
+    color_blending.attachmentCount = 1;
+    color_blending.pAttachments = &color_blend_attachment;
+    color_blending.blendConstants[0] = 0.0f;
+    color_blending.blendConstants[1] = 0.0f;
+    color_blending.blendConstants[2] = 0.0f;
+    color_blending.blendConstants[3] = 0.0f;
 
-    auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo();
-    pipelineLayoutInfo.setLayoutCount = 0;
-    pipelineLayoutInfo.pSetLayouts = nullptr;
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayoutInfo.pPushConstantRanges = nullptr;
+    auto pipeline_layout_info = vk::PipelineLayoutCreateInfo();
+    pipeline_layout_info.setLayoutCount = 0;
+    pipeline_layout_info.pSetLayouts = nullptr;
+    pipeline_layout_info.pushConstantRangeCount = 0;
+    pipeline_layout_info.pPushConstantRanges = nullptr;
 
-    pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
+    pipelineLayout = device.createPipelineLayout(pipeline_layout_info);
     if (!pipelineLayout) {
       throw std::runtime_error("failed to create pipeline layout");
     }
 
-    auto pipelineInfo = vk::GraphicsPipelineCreateInfo();
-    pipelineInfo.stageCount = shaderStages.size();
-    pipelineInfo.pStages = shaderStages.empty() ? nullptr : shaderStages.data();
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState = &multisampling;
-    pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.layout = pipelineLayout;
-    pipelineInfo.renderPass = renderPass;
-    pipelineInfo.subpass = 0;
-    pipelineInfo.basePipelineHandle = nullptr;
+    auto pipeline_info = vk::GraphicsPipelineCreateInfo();
+    pipeline_info.stageCount = shader_stages.size();
+    pipeline_info.pStages =
+        shader_stages.empty() ? nullptr : shader_stages.data();
+    pipeline_info.pVertexInputState = &vertex_input_info;
+    pipeline_info.pInputAssemblyState = &input_assembly;
+    pipeline_info.pViewportState = &viewport_state;
+    pipeline_info.pRasterizationState = &rasterizer;
+    pipeline_info.pMultisampleState = &multisampling;
+    pipeline_info.pColorBlendState = &color_blending;
+    pipeline_info.layout = pipelineLayout;
+    pipeline_info.renderPass = renderPass;
+    pipeline_info.subpass = 0;
+    pipeline_info.basePipelineHandle = nullptr;
 
     if (auto pipeline_result =
-            device.createGraphicsPipeline(nullptr, pipelineInfo);
-        pipeline_result.result != vk::Result::eSuccess) {
+            device.createGraphicsPipeline(nullptr, pipeline_info);
+        pipeline_result.result == vk::Result::eSuccess) {
+      pipeline = pipeline_result.value;
+    } else {
       throw std::runtime_error(
           std::format("failed to create graphics pipeline: {}\n",
                       vk::to_string(pipeline_result.result)));
-    } else {
-      pipeline = pipeline_result.value;
     }
 
     // device.destroyShaderModule(vertShaderModule);
@@ -691,18 +692,18 @@ private:
   void createFramebuffers() {
     framebuffers.resize(imageViews.size());
 
-    for (auto i = 0u; i < imageViews.size(); ++i) {
+    for (auto i = 0U; i < imageViews.size(); ++i) {
       auto attachments = std::vector{imageViews[i]};
 
-      auto framebufferInfo = vk::FramebufferCreateInfo();
-      framebufferInfo.renderPass = renderPass;
-      framebufferInfo.attachmentCount = attachments.size();
-      framebufferInfo.pAttachments = attachments.data();
-      framebufferInfo.width = extent.width;
-      framebufferInfo.height = extent.height;
-      framebufferInfo.layers = 1;
+      auto framebuffer_info = vk::FramebufferCreateInfo();
+      framebuffer_info.renderPass = renderPass;
+      framebuffer_info.attachmentCount = attachments.size();
+      framebuffer_info.pAttachments = attachments.data();
+      framebuffer_info.width = extent.width;
+      framebuffer_info.height = extent.height;
+      framebuffer_info.layers = 1;
 
-      framebuffers[i] = device.createFramebuffer(framebufferInfo);
+      framebuffers[i] = device.createFramebuffer(framebuffer_info);
       if (!framebuffers[i]) {
         throw std::runtime_error("failed to create framebuffer");
       }
@@ -716,38 +717,42 @@ private:
   void createCommandPools() {
     // auto const &queueFamilyIndices = this->queueFamilyIndices;
 
-    auto graphicsPoolInfo = vk::CommandPoolCreateInfo();
-    graphicsPoolInfo.queueFamilyIndex = *queueFamilyIndices.graphicsFamily;
-    graphicsPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+    auto graphics_pool_info = vk::CommandPoolCreateInfo();
+    graphics_pool_info.queueFamilyIndex = *queueFamilyIndices.graphicsFamily;
+    graphics_pool_info.flags =
+        vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 
-    commandPools.graphics = device.createCommandPool(graphicsPoolInfo);
+    commandPools.graphics = device.createCommandPool(graphics_pool_info);
     if (!commandPools.graphics) {
       throw std::runtime_error("failed to create graphics command pool");
     }
 
-    auto transferPoolInfo = vk::CommandPoolCreateInfo();
-    transferPoolInfo.queueFamilyIndex = *queueFamilyIndices.transferFamily;
-    transferPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+    auto transfer_pool_info = vk::CommandPoolCreateInfo();
+    transfer_pool_info.queueFamilyIndex = *queueFamilyIndices.transferFamily;
+    transfer_pool_info.flags =
+        vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 
-    commandPools.transfer = device.createCommandPool(transferPoolInfo);
+    commandPools.transfer = device.createCommandPool(transfer_pool_info);
     if (!commandPools.transfer) {
       throw std::runtime_error("failed to create transfer command pool");
     }
 
-    auto presentPoolInfo = vk::CommandPoolCreateInfo();
-    presentPoolInfo.queueFamilyIndex = *queueFamilyIndices.presentFamily;
-    presentPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+    auto present_pool_info = vk::CommandPoolCreateInfo();
+    present_pool_info.queueFamilyIndex = *queueFamilyIndices.presentFamily;
+    present_pool_info.flags =
+        vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 
-    commandPools.present = device.createCommandPool(presentPoolInfo);
+    commandPools.present = device.createCommandPool(present_pool_info);
     if (!commandPools.present) {
       throw std::runtime_error("failed to create present command pool");
     }
 
-    auto computePoolInfo = vk::CommandPoolCreateInfo();
-    computePoolInfo.queueFamilyIndex = *queueFamilyIndices.computeFamily;
-    computePoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+    auto compute_pool_info = vk::CommandPoolCreateInfo();
+    compute_pool_info.queueFamilyIndex = *queueFamilyIndices.computeFamily;
+    compute_pool_info.flags =
+        vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 
-    commandPools.compute = device.createCommandPool(computePoolInfo);
+    commandPools.compute = device.createCommandPool(compute_pool_info);
     if (!commandPools.compute) {
       throw std::runtime_error("failed to create compute command pool");
     }
@@ -758,49 +763,49 @@ private:
   }
 
   void createCommandBuffers() {
-    auto const queueFamilyIndices = this->queueFamilyIndices;
+    auto const queue_family_indices = this->queueFamilyIndices;
     auto const framebuffers = this->framebuffers;
 
-    auto graphicsCommandBufferInfo = vk::CommandBufferAllocateInfo();
-    graphicsCommandBufferInfo.commandPool = commandPools.graphics;
-    graphicsCommandBufferInfo.level = vk::CommandBufferLevel::ePrimary;
-    graphicsCommandBufferInfo.commandBufferCount = framebuffers.size();
+    auto graphics_command_buffer_info = vk::CommandBufferAllocateInfo();
+    graphics_command_buffer_info.commandPool = commandPools.graphics;
+    graphics_command_buffer_info.level = vk::CommandBufferLevel::ePrimary;
+    graphics_command_buffer_info.commandBufferCount = framebuffers.size();
 
     commandBuffers.graphics = device.allocateCommandBuffers(
-        graphicsCommandBufferInfo); // one for each framebuffer
+        graphics_command_buffer_info); // one for each framebuffer
     if (commandBuffers.graphics.empty()) {
       throw std::runtime_error("failed to allocate graphics command buffers");
     }
 
-    auto transferCommandBufferInfo = vk::CommandBufferAllocateInfo();
-    transferCommandBufferInfo.commandPool = commandPools.transfer;
-    transferCommandBufferInfo.level = vk::CommandBufferLevel::ePrimary;
-    transferCommandBufferInfo.commandBufferCount = 1;
+    auto transfer_command_buffer_info = vk::CommandBufferAllocateInfo();
+    transfer_command_buffer_info.commandPool = commandPools.transfer;
+    transfer_command_buffer_info.level = vk::CommandBufferLevel::ePrimary;
+    transfer_command_buffer_info.commandBufferCount = 1;
 
     commandBuffers.transfer = device.allocateCommandBuffers(
-        transferCommandBufferInfo); // one for each framebuffer
+        transfer_command_buffer_info); // one for each framebuffer
     if (commandBuffers.transfer.empty()) {
       throw std::runtime_error("failed to allocate transfer command buffers");
     }
 
-    auto presentCommandBufferInfo = vk::CommandBufferAllocateInfo();
-    presentCommandBufferInfo.commandPool = commandPools.present;
-    presentCommandBufferInfo.level = vk::CommandBufferLevel::ePrimary;
-    presentCommandBufferInfo.commandBufferCount = 1;
+    auto present_command_buffer_info = vk::CommandBufferAllocateInfo();
+    present_command_buffer_info.commandPool = commandPools.present;
+    present_command_buffer_info.level = vk::CommandBufferLevel::ePrimary;
+    present_command_buffer_info.commandBufferCount = 1;
 
     commandBuffers.present = device.allocateCommandBuffers(
-        presentCommandBufferInfo); // one for each framebuffer
+        present_command_buffer_info); // one for each framebuffer
     if (commandBuffers.present.empty()) {
       throw std::runtime_error("failed to allocate present command buffers");
     }
 
-    auto computeCommandBufferInfo = vk::CommandBufferAllocateInfo();
-    computeCommandBufferInfo.commandPool = commandPools.compute;
-    computeCommandBufferInfo.level = vk::CommandBufferLevel::ePrimary;
-    computeCommandBufferInfo.commandBufferCount = 1;
+    auto compute_command_buffer_info = vk::CommandBufferAllocateInfo();
+    compute_command_buffer_info.commandPool = commandPools.compute;
+    compute_command_buffer_info.level = vk::CommandBufferLevel::ePrimary;
+    compute_command_buffer_info.commandBufferCount = 1;
 
     commandBuffers.compute = device.allocateCommandBuffers(
-        computeCommandBufferInfo); // one for each framebuffer
+        compute_command_buffer_info); // one for each framebuffer
     if (commandBuffers.compute.empty()) {
       throw std::runtime_error("failed to allocate compute command buffers");
     }
@@ -811,23 +816,23 @@ private:
   }
 
   void createSyncObjects() {
-    auto imageAvailableSemaphoreInfo = vk::SemaphoreCreateInfo();
+    auto image_available_semaphore_info = vk::SemaphoreCreateInfo();
     imageAvailableSemaphore =
-        device.createSemaphore(imageAvailableSemaphoreInfo);
+        device.createSemaphore(image_available_semaphore_info);
     if (!imageAvailableSemaphore) {
       throw std::runtime_error("failed to create image available semaphore");
     }
 
-    auto renderFinishedSemaphoreInfo = vk::SemaphoreCreateInfo();
+    auto render_finished_semaphore_info = vk::SemaphoreCreateInfo();
     renderFinishedSemaphore =
-        device.createSemaphore(renderFinishedSemaphoreInfo);
+        device.createSemaphore(render_finished_semaphore_info);
     if (!renderFinishedSemaphore) {
       throw std::runtime_error("failed to create render finished semaphore");
     }
 
-    auto inFlightFenceInfo = vk::FenceCreateInfo();
-    inFlightFenceInfo.flags = vk::FenceCreateFlagBits::eSignaled;
-    inFlightFence = device.createFence(inFlightFenceInfo);
+    auto in_flight_fence_info = vk::FenceCreateInfo();
+    in_flight_fence_info.flags = vk::FenceCreateFlagBits::eSignaled;
+    inFlightFence = device.createFence(in_flight_fence_info);
     if (!inFlightFence) {
       throw std::runtime_error("failed to create in flight fence");
     }
@@ -853,13 +858,13 @@ private:
 
     // this is the extent of the swapchain images
     auto const extent = [&capabilities,
-                         platformVkImpl = this->platformVkImpl]() {
+                         platform_vk_impl = this->platformVkImpl]() {
       if (capabilities.currentExtent.width !=
           std::numeric_limits<uint32_t>::max()) {
         return capabilities.currentExtent;
       }
 
-      auto const [geo_width, geo_height] = platformVkImpl->get_geometry();
+      auto const [geo_width, geo_height] = platform_vk_impl->getGeometry();
 
       auto const width =
           std::clamp(geo_width, capabilities.minImageExtent.width,
@@ -878,7 +883,7 @@ private:
     }
 
     auto const formats = physicalDevice.getSurfaceFormatsKHR(*surface);
-    auto const presentModes =
+    auto const present_modes =
         physicalDevice.getSurfacePresentModesKHR(*surface);
 
     // try to find a suitable format
@@ -894,33 +899,33 @@ private:
     this->format = format->format;
 
     if (Args::verbose() > 0) {
-      for (auto const &pmode : presentModes) {
+      for (auto const &pmode : present_modes) {
         std::cerr << "Present mode " << vk::to_string(pmode) << " supported\n";
       }
     }
 
-    auto const presentMode =
-        std::ranges::find_if(presentModes, [](auto const &presentMode) {
+    auto const present_mode =
+        std::ranges::find_if(present_modes, [](auto const &presentMode) {
           return presentMode == vk::PresentModeKHR::eFifo; // vsync
         });
 
-    if (presentMode == presentModes.end()) {
+    if (present_mode == present_modes.end()) {
       throw std::runtime_error("failed to find suitable present mode");
     }
 
     // we need at least one more image than the minimum
-    auto const imageCount = std::clamp(
+    auto const image_count = std::clamp(
         capabilities.minImageCount + 1, capabilities.minImageCount,
         capabilities.maxImageCount == 0 ? 3 : capabilities.maxImageCount);
 
-    auto createInfo = vk::SwapchainCreateInfoKHR{};
-    createInfo.surface = *surface;
-    createInfo.minImageCount = imageCount;
-    createInfo.imageFormat = format->format;
-    createInfo.imageColorSpace = format->colorSpace;
-    createInfo.imageExtent = extent;
-    createInfo.imageArrayLayers = 1;
-    createInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
+    auto create_info = vk::SwapchainCreateInfoKHR{};
+    create_info.surface = *surface;
+    create_info.minImageCount = image_count;
+    create_info.imageFormat = format->format;
+    create_info.imageColorSpace = format->colorSpace;
+    create_info.imageExtent = extent;
+    create_info.imageArrayLayers = 1;
+    create_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
 
     if (!queueFamilyIndices.isComplete()) {
       throw std::runtime_error("queue family indices are not complete");
@@ -928,22 +933,22 @@ private:
 
     // we need to specify the queue families that will access the images
     if (queueFamilyIndices.graphicsFamily != queueFamilyIndices.presentFamily) {
-      createInfo.imageSharingMode = vk::SharingMode::eConcurrent;
-      createInfo.queueFamilyIndexCount = 2;
-      createInfo.pQueueFamilyIndices =
+      create_info.imageSharingMode = vk::SharingMode::eConcurrent;
+      create_info.queueFamilyIndexCount = 2;
+      create_info.pQueueFamilyIndices =
           new uint32_t[2]{*queueFamilyIndices.graphicsFamily,
                           *queueFamilyIndices.presentFamily};
     } else {
       // if the queue families are the same, we can use exclusive sharing mode
-      createInfo.imageSharingMode = vk::SharingMode::eExclusive;
+      create_info.imageSharingMode = vk::SharingMode::eExclusive;
     }
 
-    createInfo.preTransform = capabilities.currentTransform;
-    createInfo.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
-    createInfo.presentMode = *presentMode;
-    createInfo.clipped = true;
+    create_info.preTransform = capabilities.currentTransform;
+    create_info.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
+    create_info.presentMode = *present_mode;
+    create_info.clipped = true;
 
-    swapchain = device.createSwapchainKHR(createInfo);
+    swapchain = device.createSwapchainKHR(create_info);
     if (!swapchain) {
       throw std::runtime_error("failed to create swap chain");
     }
@@ -976,26 +981,28 @@ private:
       return;
     }
 
-    auto const queueFamilyProperties =
+    auto const queue_family_properties =
         physicalDevice.getQueueFamilyProperties();
 
-    for (auto i = 0u; i < queueFamilyProperties.size(); ++i) {
-      if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) {
+    for (auto i = 0U; i < queue_family_properties.size(); ++i) {
+      if (queue_family_properties[i].queueFlags &
+          vk::QueueFlagBits::eGraphics) {
         queueFamilyIndices.graphicsFamily = i;
       }
 
-      auto const presentSupport =
+      auto const present_support =
           physicalDevice.getSurfaceSupportKHR(i, *surface);
-      if (presentSupport) {
+      if (present_support != vk::Bool32{false}) {
         queueFamilyIndices.presentFamily = i;
       }
 
       // check for transfer and compute queues
-      if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eTransfer) {
+      if (queue_family_properties[i].queueFlags &
+          vk::QueueFlagBits::eTransfer) {
         queueFamilyIndices.transferFamily = i;
       }
 
-      if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute) {
+      if (queue_family_properties[i].queueFlags & vk::QueueFlagBits::eCompute) {
         queueFamilyIndices.computeFamily = i;
       }
 
@@ -1006,7 +1013,7 @@ private:
 
     if (Args::verbose() > 0) {
       std::cerr << "Queue family properties:\n";
-      for (auto const &properties : queueFamilyProperties) {
+      for (auto const &properties : queue_family_properties) {
         std::cerr << "  Queue count: " << properties.queueCount << '\n';
         std::cerr << "  Queue flags: " << vk::to_string(properties.queueFlags)
                   << '\n';
@@ -1021,59 +1028,59 @@ private:
       }
     }
 
-    float const queuePriority = 1.0f;
-    auto queueCreateInfos = std::vector<vk::DeviceQueueCreateInfo>();
+    float const queue_priority = 1.0f;
+    auto queue_create_infos = std::vector<vk::DeviceQueueCreateInfo>();
 
     if (queueFamilyIndices.graphicsFamily.has_value()) {
-      auto queueCreateInfo = vk::DeviceQueueCreateInfo();
-      queueCreateInfo.queueFamilyIndex = *queueFamilyIndices.graphicsFamily;
-      queueCreateInfo.queueCount = 1;
-      queueCreateInfo.pQueuePriorities = &queuePriority;
-      queueCreateInfos.push_back(queueCreateInfo);
+      auto queue_create_info = vk::DeviceQueueCreateInfo();
+      queue_create_info.queueFamilyIndex = *queueFamilyIndices.graphicsFamily;
+      queue_create_info.queueCount = 1;
+      queue_create_info.pQueuePriorities = &queue_priority;
+      queue_create_infos.push_back(queue_create_info);
     }
 
     if (queueFamilyIndices.presentFamily.has_value() &&
         queueFamilyIndices.presentFamily != queueFamilyIndices.graphicsFamily) {
-      auto queueCreateInfo = vk::DeviceQueueCreateInfo();
-      queueCreateInfo.queueFamilyIndex = *queueFamilyIndices.presentFamily;
-      queueCreateInfo.queueCount = 1;
-      queueCreateInfo.pQueuePriorities = &queuePriority;
-      queueCreateInfos.push_back(queueCreateInfo);
+      auto queue_create_info = vk::DeviceQueueCreateInfo();
+      queue_create_info.queueFamilyIndex = *queueFamilyIndices.presentFamily;
+      queue_create_info.queueCount = 1;
+      queue_create_info.pQueuePriorities = &queue_priority;
+      queue_create_infos.push_back(queue_create_info);
     }
 
     if (queueFamilyIndices.transferFamily.has_value() &&
         queueFamilyIndices.transferFamily !=
             queueFamilyIndices.graphicsFamily &&
         queueFamilyIndices.transferFamily != queueFamilyIndices.presentFamily) {
-      auto queueCreateInfo = vk::DeviceQueueCreateInfo();
-      queueCreateInfo.queueFamilyIndex = *queueFamilyIndices.transferFamily;
-      queueCreateInfo.queueCount = 1;
-      queueCreateInfo.pQueuePriorities = &queuePriority;
-      queueCreateInfos.push_back(queueCreateInfo);
+      auto queue_create_info = vk::DeviceQueueCreateInfo();
+      queue_create_info.queueFamilyIndex = *queueFamilyIndices.transferFamily;
+      queue_create_info.queueCount = 1;
+      queue_create_info.pQueuePriorities = &queue_priority;
+      queue_create_infos.push_back(queue_create_info);
     }
 
     if (queueFamilyIndices.computeFamily.has_value() &&
         queueFamilyIndices.computeFamily != queueFamilyIndices.graphicsFamily &&
         queueFamilyIndices.computeFamily != queueFamilyIndices.presentFamily &&
         queueFamilyIndices.computeFamily != queueFamilyIndices.transferFamily) {
-      auto queueCreateInfo = vk::DeviceQueueCreateInfo();
-      queueCreateInfo.queueFamilyIndex = *queueFamilyIndices.computeFamily;
-      queueCreateInfo.queueCount = 1;
-      queueCreateInfo.pQueuePriorities = &queuePriority;
-      queueCreateInfos.push_back(queueCreateInfo);
+      auto queue_create_info = vk::DeviceQueueCreateInfo();
+      queue_create_info.queueFamilyIndex = *queueFamilyIndices.computeFamily;
+      queue_create_info.queueCount = 1;
+      queue_create_info.pQueuePriorities = &queue_priority;
+      queue_create_infos.push_back(queue_create_info);
     }
 
     auto const exts =
         std::vector{"VK_KHR_swapchain"}; // required extension
                                          // createSwapchain requires it
 
-    auto deviceCreateInfo = vk::DeviceCreateInfo{};
-    deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
-    deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
-    deviceCreateInfo.setEnabledExtensionCount(exts.size());
-    deviceCreateInfo.setPpEnabledExtensionNames(exts.data());
+    auto device_create_info = vk::DeviceCreateInfo{};
+    device_create_info.queueCreateInfoCount = queue_create_infos.size();
+    device_create_info.pQueueCreateInfos = queue_create_infos.data();
+    device_create_info.setEnabledExtensionCount(exts.size());
+    device_create_info.setPpEnabledExtensionNames(exts.data());
 
-    device = physicalDevice.createDevice(deviceCreateInfo);
+    device = physicalDevice.createDevice(device_create_info);
     if (!device) {
       throw std::runtime_error("failed to create logical device");
     }
