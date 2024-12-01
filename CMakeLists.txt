@@ -105,11 +105,14 @@ add_custom_command(
 # target_include_directories(mywayland-protocols PUBLIC
 # "${CMAKE_CURRENT_BINARY_DIR}")
 
-vcpkg_install(PACKAGES cpptrace gtest simdjson)
+vcpkg_install(PACKAGES cpptrace gtest nlohmann-json json-schema-validator)
 
 #find_path(SIMPLEINI_INCLUDE_DIRS "ConvertUTF.c")
 
-find_package(simdjson CONFIG REQUIRED)
+# find_package(simdjson CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+
+find_package(cpptrace CONFIG REQUIRED)
 
 find_package(Vulkan REQUIRED)
 
@@ -126,8 +129,10 @@ list(APPEND HotAIR_Includes ${WAYLAND_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 # list(APPEND HotAIR_Includes  ${SIMPLEINI_INCLUDE_DIRS})
 
 list(APPEND HotAIR_Depends Vulkan::Vulkan)
-list(APPEND HotAIR_Depends simdjson::simdjson)
+#list(APPEND HotAIR_Depends simdjson::simdjson)
+list(APPEND HotAIR_Depends nlohmann_json nlohmann_json::nlohmann_json)
 list(APPEND HotAIR_Depends ${LIBDECOR_LIBRARIES})
+list(APPEND HotAIR_Depends cpptrace::cpptrace)
 
 list(APPEND HotAir_Sources main.cpp)
 

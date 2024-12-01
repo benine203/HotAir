@@ -379,7 +379,7 @@ private:
 
     auto extensions = vk::enumerateInstanceExtensionProperties();
 
-    if (Args::verbose() > 0) {
+    if (Args::verbose() > 1) {
       std::cerr << "available extensions:\n";
       for (auto const &extension : extensions) {
         std::cerr << extension.extensionName << '\n';
@@ -511,8 +511,9 @@ private:
       }
     }
 
-    std::cerr << std::format("{}:{}: Image views created for {} images\n",
-                             __FILE__, __LINE__, images.size());
+    if (Args::verbose() > 0)
+      std::cerr << std::format("{}:{}: Image views created for {} images\n",
+                               __FILE__, __LINE__, images.size());
   }
 
   void createRenderPass() {
@@ -557,8 +558,9 @@ private:
       throw std::runtime_error("failed to create render pass");
     }
 
-    std::cerr << std::format("{}:{}: Render pass created\n", __FILE__,
-                             __LINE__);
+    if (Args::verbose() > 0)
+      std::cerr << std::format("{}:{}: Render pass created\n", __FILE__,
+                               __LINE__);
   }
 
   void createGraphicsPipeline() {
@@ -681,8 +683,9 @@ private:
     // device.destroyShaderModule(vertShaderModule);
     // device.destroyShaderModule(fragShaderModule);
 
-    std::cerr << std::format("{}:{}: Graphics pipeline created\n", __FILE__,
-                             __LINE__);
+    if (Args::verbose() > 0)
+      std::cerr << std::format("{}:{}: Graphics pipeline created\n", __FILE__,
+                               __LINE__);
   }
 
   void createFramebuffers() {
@@ -705,8 +708,9 @@ private:
       }
     }
 
-    std::cerr << std::format("{}:{}: Framebuffers created for {} images\n",
-                             __FILE__, __LINE__, imageViews.size());
+    if (Args::verbose() > 0)
+      std::cerr << std::format("{}:{}: Framebuffers created for {} images\n",
+                               __FILE__, __LINE__, imageViews.size());
   }
 
   void createCommandPools() {
@@ -748,8 +752,9 @@ private:
       throw std::runtime_error("failed to create compute command pool");
     }
 
-    std::cerr << std::format("{}:{}: Command pools created\n", __FILE__,
-                             __LINE__);
+    if (Args::verbose() > 0)
+      std::cerr << std::format("{}:{}: Command pools created\n", __FILE__,
+                               __LINE__);
   }
 
   void createCommandBuffers() {
@@ -800,8 +805,9 @@ private:
       throw std::runtime_error("failed to allocate compute command buffers");
     }
 
-    std::cerr << std::format("{}:{}: Command buffers allocated\n", __FILE__,
-                             __LINE__);
+    if (Args::verbose() > 0)
+      std::cerr << std::format("{}:{}: Command buffers allocated\n", __FILE__,
+                               __LINE__);
   }
 
   void createSyncObjects() {
@@ -826,8 +832,9 @@ private:
       throw std::runtime_error("failed to create in flight fence");
     }
 
-    std::cerr << std::format("{}:{}: Sync objects created\n", __FILE__,
-                             __LINE__);
+    if (Args::verbose() > 0)
+      std::cerr << std::format("{}:{}: Sync objects created\n", __FILE__,
+                               __LINE__);
   }
 
   /**
@@ -947,8 +954,9 @@ private:
       throw std::runtime_error("failed to get swap chain images");
     }
 
-    std::cerr << std::format("Swapchain created with {} images\n",
-                             images.size());
+    if (Args::verbose() > 0)
+      std::cerr << std::format("Swapchain created with {} images\n",
+                               images.size());
   }
 
   /**
@@ -1091,6 +1099,7 @@ private:
       throw std::runtime_error("failed to get compute queue");
     }
 
-    std::cerr << "Logical device created, queues acquired\n";
+    if (Args::verbose() > 0)
+      std::cerr << "Logical device created, queues acquired\n";
   }
 };
