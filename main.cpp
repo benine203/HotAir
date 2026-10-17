@@ -1,7 +1,7 @@
 
 static_assert(__cplusplus >= 202002L, "C++20 required");
 
-#include <cpptrace.hpp>
+#include <cpptrace/cpptrace.hpp>
 #include <getopt.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>

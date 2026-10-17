@@ -3,7 +3,7 @@
 #include <limits>
 static_assert(__cplusplus >= 202002L, "C++20 required");
 
-#include <cpptrace.hpp>
+#include <cpptrace/cpptrace.hpp>
 #include <libdecor.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_wayland.h>
