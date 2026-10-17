@@ -7,9 +7,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if(NOT ENV{VCPKG_ROOT})
-  FetchContent_Declare(vcpkg
-                       GIT_REPOSITORY https://github.com/microsoft/vcpkg.git)
+if(NOT DEFINED ENV{VCPKG_ROOT})
+  # pinned to avoid port version drift; bump deliberately
+  FetchContent_Declare(
+    vcpkg
+    GIT_REPOSITORY https://github.com/microsoft/vcpkg.git
+    GIT_TAG e456309491fd875487bf02b8a0dca76c1b1b00cc)
   FetchContent_MakeAvailable(vcpkg)
   if(NOT VCPKG_BOOTSTRAPPED)
     message(STATUS "Bootstrapping vcpkg")
