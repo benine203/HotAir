@@ -7,6 +7,8 @@ static_assert(__cplusplus >= 202002L, "Needs C++20");
 #include <fcntl.h>
 #include <filesystem>
 #include <format>
+#include <memory>
+#include <stdexcept>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -68,9 +70,11 @@ public:
 
       data_len_ = fsize;
 
-      if (auto *ptr = mmap(nullptr, static_cast<size_t>(fsize), PROT_READ,
-                           MAP_PRIVATE, 1, 1);
-          ptr) {
+      auto *ptr = mmap(nullptr, static_cast<size_t>(fsize), PROT_READ,
+                       MAP_PRIVATE, file_descriptor, 0);
+      close(file_descriptor);
+
+      if (ptr != MAP_FAILED) {
         // data_ = ptr;
         data_ = std::shared_ptr<T[]>{
             static_cast<T *>(ptr), [fsize](void *ptr) {
@@ -84,8 +88,6 @@ public:
         throw std::runtime_error{std::format("{}:{}: mmap failed: {}", __FILE__,
                                              __LINE__, strerror(errno))};
       }
-
-      close(file_descriptor);
     } else {
       throw std::runtime_error{std::format("{}:{}: open failed: {}", __FILE__,
                                            __LINE__, strerror(errno))};

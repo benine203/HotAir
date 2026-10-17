@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <limits>
 static_assert(__cplusplus >= 202002L, "C++20 required");
 
@@ -28,7 +29,7 @@ static_assert(__cplusplus >= 202002L, "C++20 required");
  */
 struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
   WaylandGfx() : VulkanGfxBase{this} {}
-  virtual ~WaylandGfx() { VulkanGfxBase::~VulkanGfxBase(); }
+  ~WaylandGfx() override { VulkanGfxBase::release(); }
 
   WaylandGfx(const WaylandGfx &) = delete;
   WaylandGfx(WaylandGfx &&) = delete;
@@ -56,7 +57,7 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
     wl_surface *surface = nullptr;
 
     // wl_shell *shell;
-    xdg_wm_base *xdg_wm_base = nullptr;
+    xdg_wm_base *xdgwm_base = nullptr;
 
     // decoration
     zxdg_decoration_manager_v1 *decoration_manager = nullptr;
@@ -106,36 +107,39 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
       static wl_registry_listener registry_listener;
       registry_listener.global = [](void *data, wl_registry *registry,
                                     uint32_t name, const char *interface,
-                                    uint32_t /*version*/) {
+                                    uint32_t version) {
         auto *self = static_cast<Display *>(data);
         auto const siface = std::string_view(interface);
 
+        // never request more than the compositor advertises
+        auto const bind = [&](wl_interface const *iface) {
+          return wl_registry_bind(
+              registry, name, iface,
+              std::min(version, static_cast<uint32_t>(iface->version)));
+        };
+
         if (siface == "wl_compositor") {
           self->compositor = static_cast<wl_compositor *>(
-              wl_registry_bind(registry, name, &wl_compositor_interface,
-                               wl_compositor_interface.version));
+              bind(&wl_compositor_interface));
         } else if (siface == "wl_seat") {
           self->seat = static_cast<wl_seat *>(
-              wl_registry_bind(registry, name, &wl_seat_interface, 8));
+              bind(&wl_seat_interface));
         } else if (siface == xdg_wm_base_interface.name) {
-          self->xdg_wm_base = static_cast<struct xdg_wm_base *>(
-              wl_registry_bind(registry, name, &xdg_wm_base_interface,
-                               wl_output_interface.version));
+          self->xdgwm_base = static_cast<struct xdg_wm_base *>(
+              bind(&xdg_wm_base_interface));
           static auto listener = xdg_wm_base_listener{
               .ping = [](void * /*data*/, struct xdg_wm_base *xdg_wm_base,
                          uint32_t serial) {
                 xdg_wm_base_pong(xdg_wm_base, serial);
               }};
-          xdg_wm_base_add_listener(self->xdg_wm_base, &listener, self);
+          xdg_wm_base_add_listener(self->xdgwm_base, &listener, self);
         } else if (siface == "wl_output") {
           self->output = static_cast<wl_output *>(
-              wl_registry_bind(registry, name, &wl_output_interface,
-                               wl_output_interface.version));
+              bind(&wl_output_interface));
         } else if (siface == "zxdg_decoration_manager_v1") {
           self->decoration_manager =
-              static_cast<zxdg_decoration_manager_v1 *>(wl_registry_bind(
-                  registry, name, &zxdg_decoration_manager_v1_interface,
-                  zxdg_decoration_manager_v1_interface.version));
+              static_cast<zxdg_decoration_manager_v1 *>(
+                  bind(&zxdg_decoration_manager_v1_interface));
         } else {
           if (Args::verbose() > 1) {
             std::cerr << std::format("{}:{} ignoring global {} ({})\n",
@@ -168,7 +172,7 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
                                              __PRETTY_FUNCTION__));
       }
 
-      if (xdg_wm_base == nullptr || display == nullptr ||
+      if (xdgwm_base == nullptr || display == nullptr ||
           compositor == nullptr || output == nullptr) {
         throw std::runtime_error(std::format(
             "{}:{}:{}: Failed to bind/initialize base Wayland facilities\n",
@@ -526,25 +530,27 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
   };
 
   struct Window {
-    std::shared_ptr<Display> display;
-    xdg_surface *xdg_surface = nullptr;
-    xdg_toplevel *xdg_toplevel = nullptr;
-    Geometry geometry{};
+  private:
+    std::shared_ptr<Display> display_;
+    xdg_surface *xdg_surface_ = nullptr;
+    xdg_toplevel *xdg_toplevel_ = nullptr;
+    Geometry geometry_{};
 
-    std::atomic<bool> configured = false;
-    std::atomic<bool> closed = false;
+    std::atomic<bool> configured_ = false;
+    std::atomic<bool> closed_ = false;
 
-    std::function<void()> redraw_fn;
-    std::function<void(Geometry)> on_resize;
+    std::function<void()> redraw_fn_;
+    std::function<void(Geometry)> on_resize_;
 
+  public:
     ~Window() {
       if (Args::verbose() > 0)
         std::cerr << std::format("{}:{}:{}: destroying window\n", __FILE__,
                                  __LINE__, __PRETTY_FUNCTION__);
-      if (xdg_toplevel != nullptr)
-        xdg_toplevel_destroy(xdg_toplevel);
-      if (xdg_surface != nullptr)
-        xdg_surface_destroy(xdg_surface);
+      if (xdg_toplevel_ != nullptr)
+        xdg_toplevel_destroy(xdg_toplevel_);
+      if (xdg_surface_ != nullptr)
+        xdg_surface_destroy(xdg_surface_);
     }
 
     Window() = delete;
@@ -556,14 +562,15 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
     Window(const std::shared_ptr<Display> &display,
            std::function<void()> &&on_redraw,
            std::function<void(Geometry)> &&on_resize)
-        : display(display), redraw_fn(std::move(on_redraw)),
-          on_resize(std::move(on_resize)) {
-      geometry.width = std::get<int64_t>(Config::get(Config::Key::GFX_WIDTH));
-      geometry.height = std::get<int64_t>(Config::get(Config::Key::GFX_HEIGHT));
+        : display_(display), redraw_fn_(std::move(on_redraw)),
+          on_resize_(std::move(on_resize)) {
+      geometry_.width = std::get<int64_t>(Config::get(Config::Key::GFX_WIDTH));
+      geometry_.height =
+          std::get<int64_t>(Config::get(Config::Key::GFX_HEIGHT));
 
       if (display->decoration_manager != nullptr) {
-        xdg_surface =
-            xdg_wm_base_get_xdg_surface(display->xdg_wm_base, display->surface);
+        xdg_surface_ =
+            xdg_wm_base_get_xdg_surface(display->xdgwm_base, display->surface);
 
         static auto surface_listener = xdg_surface_listener{
             .configure = [](void *data, struct xdg_surface *xdg_surface,
@@ -571,13 +578,13 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
               auto *window = static_cast<Window *>(data);
               xdg_surface_ack_configure(xdg_surface, serial);
 
-              if (window->display->decoration_manager) {
-                window->xdg_toplevel =
-                    xdg_surface_get_toplevel(window->xdg_surface);
+              if (window->display_->decoration_manager) {
+                window->xdg_toplevel_ =
+                    xdg_surface_get_toplevel(window->xdg_surface_);
                 struct zxdg_toplevel_decoration_v1 *decoration =
                     zxdg_decoration_manager_v1_get_toplevel_decoration(
-                        window->display->decoration_manager,
-                        window->xdg_toplevel);
+                        window->display_->decoration_manager,
+                        window->xdg_toplevel_);
 
                 // Request server-side decorations
                 zxdg_toplevel_decoration_v1_set_mode(
@@ -585,11 +592,11 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
               } else if (Args::verbose() > 0) {
               }
 
-              window->configured.store(true);
-              window->configured.notify_all();
+              window->configured_.store(true);
+              window->configured_.notify_all();
             }};
 
-        xdg_surface_add_listener(xdg_surface, &surface_listener, this);
+        xdg_surface_add_listener(xdg_surface_, &surface_listener, this);
 
         static auto toplevel_listener = xdg_toplevel_listener{
             .configure =
@@ -608,7 +615,7 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
                 [](void *data, struct xdg_toplevel * /*xdg_toplevel*/) {
                   auto *window = static_cast<Window *>(data);
 
-                  window->closed.store(true);
+                  window->closed_.store(true);
 
                   if (Args::verbose() > 0)
                     std::cerr << std::format("{}:{}: toplevel close\n",
@@ -632,9 +639,9 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
                                        __FILE__, __LINE__);
                 }};
 
-        xdg_toplevel_add_listener(xdg_toplevel, &toplevel_listener, this);
+        xdg_toplevel_add_listener(xdg_toplevel_, &toplevel_listener, this);
 
-        xdg_toplevel_set_title(xdg_toplevel, "HotAir");
+        xdg_toplevel_set_title(xdg_toplevel_, "HotAir");
       } else {
         std::cerr << std::format("{}:{}: no XDG decoration manager; "
                                  "attempt CSD with libdecor\n",
@@ -671,12 +678,12 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
                           configuration, frame, &width, &height);
 
                   width = (width == 0) ? static_cast<int>(std::clamp<uint32_t>(
-                                             window->geometry.width, 1U,
+                                             window->geometry_.width, 1U,
                                              std::numeric_limits<int>::max()))
                                        : width;
                   height = (height == 0)
                                ? static_cast<int>(std::clamp<uint32_t>(
-                                     window->geometry.height, 1U,
+                                     window->geometry_.height, 1U,
                                      std::numeric_limits<int>::max()))
                                : height;
 
@@ -689,32 +696,32 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
                   libdecor_frame_commit(frame, state, configuration);
                   libdecor_state_free(state);
 
-                  window->configured.store(true);
-                  window->configured.notify_all();
+                  window->configured_.store(true);
+                  window->configured_.notify_all();
 
                   if (!is_initial_frame) {
                     auto const new_geometry =
                         Geometry{.width = static_cast<uint32_t>(width),
                                  .height = static_cast<uint32_t>(height)};
 
-                    window->on_resize(new_geometry);
+                    window->on_resize_(new_geometry);
 
-                    window->redraw_fn();
+                    window->redraw_fn_();
                   }
 
-                  wl_surface_commit(window->display->surface);
+                  wl_surface_commit(window->display_->surface);
                 },
             .close =
                 [](libdecor_frame * /*frame*/, void *data) {
                   auto *window = static_cast<Window *>(data);
-                  window->closed.store(true);
-                  window->closed.notify_all();
+                  window->closed_.store(true);
+                  window->closed_.notify_all();
                 },
 
             .commit =
                 [](libdecor_frame * /*frame*/, void *data) {
                   auto *window = static_cast<Window *>(data);
-                  wl_surface_commit(window->display->surface);
+                  wl_surface_commit(window->display_->surface);
                 },
 
             .dismiss_popup = [](libdecor_frame *frame, const char *seat_name,
@@ -730,14 +737,25 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
 
       wl_surface_commit(display->surface);
 
-      while (!configured) {
+      while (!configured_) {
         wl_display_dispatch(display->display);
       }
 
       std::cerr << std::format("{}:{}: Wayland window initialized: {}x{}\n",
-                               __FILE__, __LINE__, geometry.width,
-                               geometry.height);
+                               __FILE__, __LINE__, geometry_.width,
+                               geometry_.height);
     }
+
+    auto geometry() const -> Geometry { return geometry_; }
+    auto geometry(Geometry new_geometry) -> void { geometry_ = new_geometry; }
+
+    auto closed() const -> bool { return closed_; }
+    auto closed(bool new_closed) -> void {
+      closed_.store(new_closed);
+      closed_.notify_all();
+    }
+
+    auto display() const -> Display const & { return *display_; }
   };
 
   std::shared_ptr<Display> display;
@@ -747,27 +765,29 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
   std::atomic<bool> initialized = false;
   std::function<bool()> on_tick = []() { return true; };
 
-  auto getGeometry() -> Geometry override { return window->geometry; }
+  auto getGeometry() -> Geometry override { return window->geometry(); }
 
   void platformEventLoop(std::function<bool()> &&on_tick) override {
 
-    assert(window->display->surface);
+    auto const &display = window->display();
+    assert(display.surface);
 
     if (on_tick) {
       this->on_tick = std::move(on_tick);
     }
 
     {
-
       static const wl_callback_listener frame_listener = wl_callback_listener{
           .done = [](void *data, wl_callback *frame_cback, uint32_t /*time*/) {
             auto *self = static_cast<WaylandGfx *>(data);
             wl_callback_destroy(frame_cback);
 
+            const auto &display = self->window->display();
+
             if (Args::verbose() > 2)
               std::cerr << ".";
 
-            if (self->window->closed) {
+            if (self->window->closed()) {
               if (Args::verbose() > 0)
                 std::cerr << std::format(
                     "{}:{}: redrawing halted: window closed\n", __FILE__,
@@ -785,19 +805,19 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
 
             self->redraw();
 
-            auto *next_cb = wl_surface_frame(self->window->display->surface);
+            auto *next_cb = wl_surface_frame(display.surface);
             wl_callback_add_listener(next_cb, &frame_listener, self);
 
-            wl_surface_commit(self->window->display->surface);
+            wl_surface_commit(display.surface);
             //  wl_display_flush(self->display->display);
           }};
 
-      auto *cback = wl_surface_frame(window->display->surface);
+      auto *cback = wl_surface_frame(display.surface);
       wl_callback_add_listener(cback, &frame_listener, this);
     }
 
-    while (display->dispatchEvents() != -1) {
-      if (window->closed)
+    while (display.dispatchEvents() != -1) {
+      if (window->closed())
         break;
     }
   }
@@ -811,14 +831,14 @@ struct WaylandGfx : public PlatformGfx, protected VulkanGfxBase {
           this->redraw();
         },
         [this](Geometry new_geometry) { // on_resize
-          if (new_geometry == window->geometry) {
+          if (new_geometry == window->geometry()) {
             if (Args::verbose() > 1)
               std::cerr << std::format("{}:{}: geometry unchanged\n", __FILE__,
                                        __LINE__);
             return;
           }
 
-          window->geometry = new_geometry;
+          window->geometry(new_geometry);
 
           Config::set(Config::Key::GFX_WIDTH, new_geometry.width);
           Config::set(Config::Key::GFX_HEIGHT, new_geometry.height);

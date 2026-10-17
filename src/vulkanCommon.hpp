@@ -97,7 +97,11 @@ public:
   VulkanGfxBase(PlatformGfx *platformGfxImpl)
       : platformVkImpl(platformGfxImpl) {}
 
-  virtual ~VulkanGfxBase() {
+  virtual ~VulkanGfxBase() { release(); }
+
+  // full teardown, idempotent; derived classes call this from their destructor
+  // so Vulkan goes away before the platform objects the surface refers to
+  void release() {
     auto const verbose = Args::verbose();
 
     destroy();
@@ -107,6 +111,15 @@ public:
       device = nullptr;
       if (verbose > 1) {
         std::cerr << std::format("{}:{}: Vulkan device destroyed\n", __FILE__,
+                                 __LINE__);
+      }
+    }
+
+    if (surface != nullptr && *surface && instance) {
+      instance.destroySurfaceKHR(*surface);
+      *surface = nullptr;
+      if (verbose > 1) {
+        std::cerr << std::format("{}:{}: Vulkan surface destroyed\n", __FILE__,
                                  __LINE__);
       }
     }
@@ -123,6 +136,9 @@ public:
 
   void destroy() {
     auto const verbose = Args::verbose();
+
+    if (verbose > 1)
+	    std::cerr << std::format("{}:{}:{}\n", __FILE__, __LINE__, __PRETTY_FUNCTION__);
 
     if (device) {
       device.waitIdle();
@@ -155,53 +171,11 @@ public:
       }
     }
 
-    if (!commandBuffers.graphics.empty()) {
-      device.freeCommandBuffers(commandPools.graphics,
-                                commandBuffers.graphics.size(),
-                                commandBuffers.graphics.data());
-      if (verbose > 1) {
-        std::cerr << std::format("{}:{}: {} graphics command buffer(s) freed\n",
-                                 __FILE__, __LINE__,
-                                 commandBuffers.graphics.size());
-      }
-      commandBuffers.graphics.clear();
-    }
-
-    if (!commandBuffers.transfer.empty()) {
-      device.freeCommandBuffers(commandPools.transfer,
-                                commandBuffers.transfer.size(),
-                                commandBuffers.transfer.data());
-      if (verbose > 1) {
-        std::cerr << std::format("{}:{}: {} transfer command buffer(s) freed\n",
-                                 __FILE__, __LINE__,
-                                 commandBuffers.transfer.size());
-      }
-      commandBuffers.transfer.clear();
-    }
-
-    if (!commandBuffers.present.empty()) {
-      device.freeCommandBuffers(commandPools.present,
-                                commandBuffers.present.size(),
-                                commandBuffers.present.data());
-      if (verbose > 1) {
-        std::cerr << std::format("{}:{}: {} present command buffer(s) freed\n",
-                                 __FILE__, __LINE__,
-                                 commandBuffers.present.size());
-      }
-      commandBuffers.present.clear();
-    }
-
-    if (!commandBuffers.compute.empty()) {
-      device.freeCommandBuffers(commandPools.compute,
-                                commandBuffers.compute.size(),
-                                commandBuffers.compute.data());
-      if (verbose > 1) {
-        std::cerr << std::format("{}:{}: {} compute command buffer(s) freed\n",
-                                 __FILE__, __LINE__,
-                                 commandBuffers.compute.size());
-      }
-      commandBuffers.compute.clear();
-    }
+    // buffers are freed implicitly when their pools are destroyed below
+    commandBuffers.graphics.clear();
+    commandBuffers.transfer.clear();
+    commandBuffers.present.clear();
+    commandBuffers.compute.clear();
 
     if (commandPools.compute) {
       device.destroyCommandPool(commandPools.compute);
